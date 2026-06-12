@@ -25,8 +25,6 @@ const model = JSON.parse(readFileSync(join(out, 'model.json'), 'utf8'));
 assert.equal(model.meta.tool, 'code-analysis-dashboard');
 assert.ok(model.meta.analyzedAt);
 
-/* ASPIRATIONAL — uncomment each section as its phase lands.
-
 // ---- Phase 1: module dependency graph ----
 assert.equal(model.meta.fileCount, 8);
 assert.ok(model.moduleGraph.nodes.includes('src/app.ts'));
@@ -43,6 +41,8 @@ assert.deepEqual(
 );
 const appFile = model.files.find((f) => f.path === 'src/app.ts');
 assert.ok(appFile.loc > 10 && appFile.bytes > 100);
+
+/* ASPIRATIONAL — uncomment each section as its phase lands.
 
 // ---- Phase 2: symbol map + doc coverage ----
 const byId = new Map(model.symbols.map((s) => [s.id, s]));
