@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-12
 **Track:** Code Analysis Dashboard (single Track, no Series)
-**Status:** In progress
+**Status:** Complete (all 8 phases; PIR filed)
 **Acceptance spec:** `examples/2026-06-12-dashboard-acceptance.mjs`
 
 ## Progress Tracker
@@ -16,8 +16,8 @@
 | 4 | Static call graph | ✅ done | commit 7ee43f2 — callee resolution incl. super/new/callbacks; `<module>` pseudo-callers; uncalled list |
 | 5 | Complexity metrics + git churn overlays | ✅ done | commit 7ee6ae0 — classify=10, loadConfig=4 pinned; churn null outside repos |
 | 6 | Global/API usage map | ✅ done | commit b92c30f — builtin-module + DB-package imports, ambient globals w/ shadowing check |
-| 7 | Dashboard generator + interactive UI | ✅ done | standalone HTML; 4 views + overlays + search + drill-down; headless-Chromium render test; 35 tests green |
-| 8 | Capstone demo (self-analysis) + PIR + README | ⬜ | |
+| 7 | Dashboard generator + interactive UI | ✅ done | commit c8533a1 — standalone HTML; 4 views + overlays + search + drill-down; browser render test |
+| 8 | Capstone demo (self-analysis) + PIR + README | ✅ done | commit 6154931 (capstone+README); PIR in this commit. Track complete. |
 
 Statuses: ⬜ not started / 🔄 in progress / ✅ done / ⏸️ blocked
 
