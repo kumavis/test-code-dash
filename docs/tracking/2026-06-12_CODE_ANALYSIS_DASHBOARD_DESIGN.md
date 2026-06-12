@@ -9,7 +9,7 @@
 
 | Phase | Description | Status | Notes |
 |---|---|---|---|
-| 0 | Scaffold, fixture project, acceptance spec | ⬜ | |
+| 0 | Scaffold, fixture project, acceptance spec | ✅ done | 8-file fixture; CLI emits meta-only model; 2 tests + acceptance baseline pass |
 | 1 | Project loader + module dependency graph (+ cycles, file metrics) | ⬜ | |
 | 2 | Symbol map + documentation coverage | ⬜ | |
 | 3 | Type relationship graph | ⬜ | |

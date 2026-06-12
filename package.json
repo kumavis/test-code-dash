@@ -1,0 +1,21 @@
+{
+  "name": "code-analysis-dashboard",
+  "version": "0.1.0",
+  "description": "Multi-layer static analysis dashboard for TypeScript/JavaScript projects",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "cad": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
+    "test": "npm run build && node --test \"test/*.test.mjs\"",
+    "acceptance": "npm run build && node examples/2026-06-12-dashboard-acceptance.mjs"
+  },
+  "dependencies": {
+    "typescript": "^5.8.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0"
+  }
+}
