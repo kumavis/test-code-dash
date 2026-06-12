@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import type { AnalysisModel, FileInfo } from '../model.js';
 import { loadProject, relPath } from './project.js';
 import { buildModuleGraph } from './modules.js';
+import { applyDocCoverage, collectSymbols, toSymbolInfos } from './symbols.js';
 
 export const TOOL_NAME = 'code-analysis-dashboard';
 export const TOOL_VERSION = '0.1.0';
@@ -21,6 +22,9 @@ export function analyze(projectRoot: string): AnalysisModel {
     }))
     .sort((a, b) => a.path.localeCompare(b.path));
 
+  const symbolTable = collectSymbols(project);
+  applyDocCoverage(files, symbolTable);
+
   return {
     meta: {
       tool: TOOL_NAME,
@@ -31,7 +35,7 @@ export function analyze(projectRoot: string): AnalysisModel {
     },
     files,
     moduleGraph: buildModuleGraph(project),
-    symbols: [],
+    symbols: toSymbolInfos(symbolTable),
     typeGraph: [],
     callGraph: { edges: [], uncalled: [] },
     apiUsage: [],

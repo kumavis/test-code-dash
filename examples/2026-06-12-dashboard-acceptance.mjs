@@ -42,8 +42,6 @@ assert.deepEqual(
 const appFile = model.files.find((f) => f.path === 'src/app.ts');
 assert.ok(appFile.loc > 10 && appFile.bytes > 100);
 
-/* ASPIRATIONAL — uncomment each section as its phase lands.
-
 // ---- Phase 2: symbol map + doc coverage ----
 const byId = new Map(model.symbols.map((s) => [s.id, s]));
 assert.equal(byId.get('src/models.ts#Dog').kind, 'class');
@@ -57,6 +55,8 @@ const networkFile = model.files.find((f) => f.path === 'src/services/network.ts'
 assert.equal(networkFile.docCoverage, 0); // ping is exported and undocumented
 const storageFile = model.files.find((f) => f.path === 'src/services/storage.ts');
 assert.equal(storageFile.docCoverage, 1);
+
+/* ASPIRATIONAL — uncomment each section as its phase lands.
 
 // ---- Phase 3: type relationship graph ----
 assert.ok(
