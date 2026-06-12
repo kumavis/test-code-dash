@@ -2,6 +2,7 @@
 import { mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { analyze } from './analyzer/index.js';
+import { renderDashboard } from './dashboard/generate.js';
 
 function usage(): never {
   console.error('Usage: cad <projectDir> [-o <outDir>]');
@@ -40,4 +41,7 @@ const model = analyze(root);
 mkdirSync(outDir, { recursive: true });
 const modelPath = join(outDir, 'model.json');
 writeFileSync(modelPath, JSON.stringify(model, null, 2));
+const htmlPath = join(outDir, 'index.html');
+writeFileSync(htmlPath, renderDashboard(model));
 console.log(`Analyzed ${model.meta.fileCount} files -> ${modelPath}`);
+console.log(`Dashboard -> ${htmlPath}`);

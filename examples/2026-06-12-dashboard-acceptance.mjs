@@ -108,15 +108,11 @@ assert.ok(
   ),
 );
 
-/* ASPIRATIONAL — uncomment each section as its phase lands.
-
 // ---- Phase 7: dashboard HTML ----
 const html = readFileSync(join(out, 'index.html'), 'utf8');
 assert.ok(html.includes('<!doctype html') || html.includes('<!DOCTYPE html'));
 assert.ok(html.includes('src/app.ts')); // data is inlined
 assert.ok(!/src=["']https?:/.test(html), 'no external scripts');
 assert.ok(existsSync(join(out, 'model.json')));
-
-*/
 
 console.log('acceptance: all active sections passed');
