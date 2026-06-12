@@ -14,8 +14,8 @@
 | 2 | Symbol map + documentation coverage | ✅ done | commit 7a67d48 — 7 kinds incl. methods; JSDoc doc coverage per file |
 | 3 | Type relationship graph | ✅ done | commit 01c7b72 — extends/implements/alias via checker |
 | 4 | Static call graph | ✅ done | commit 7ee43f2 — callee resolution incl. super/new/callbacks; `<module>` pseudo-callers; uncalled list |
-| 5 | Complexity metrics + git churn overlays | ✅ done | classify=10, loadConfig=4 verified; churn from one git log pass, null outside repos; 25 tests green |
-| 6 | Global/API usage map | ⬜ | |
+| 5 | Complexity metrics + git churn overlays | ✅ done | commit 7ee6ae0 — classify=10, loadConfig=4 pinned; churn null outside repos |
+| 6 | Global/API usage map | ✅ done | builtin-module + DB-package imports, ambient globals w/ shadowing check; 31 tests green |
 | 7 | Dashboard generator + interactive UI | ⬜ | |
 | 8 | Capstone demo (self-analysis) + PIR + README | ⬜ | |
 

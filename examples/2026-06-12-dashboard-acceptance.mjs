@@ -96,8 +96,6 @@ assert.ok(byId.get('src/util/b.ts#stripPunctuation').complexity <= 2);
 // Fixture lives inside this git repo, so churn is a number >= 1.
 assert.ok(appFile.churn >= 1);
 
-/* ASPIRATIONAL — uncomment each section as its phase lands.
-
 // ---- Phase 6: global/API usage map ----
 const categories = new Set(model.apiUsage.map((u) => u.category));
 assert.ok(categories.has('filesystem'));
@@ -109,6 +107,8 @@ assert.ok(
     (u) => u.api === 'fetch' && u.inSymbol === 'src/services/network.ts#ping',
   ),
 );
+
+/* ASPIRATIONAL — uncomment each section as its phase lands.
 
 // ---- Phase 7: dashboard HTML ----
 const html = readFileSync(join(out, 'index.html'), 'utf8');
