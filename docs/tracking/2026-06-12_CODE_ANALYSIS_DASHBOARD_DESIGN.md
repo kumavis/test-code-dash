@@ -11,8 +11,8 @@
 |---|---|---|---|
 | 0 | Scaffold, fixture project, acceptance spec | ✅ done | commit 4cc77d6 — 8-file fixture; CLI emits meta-only model |
 | 1 | Project loader + module dependency graph (+ cycles, file metrics) | ✅ done | commit 88407ed — tsconfig or scan loading; Tarjan SCC finds util/a↔b cycle |
-| 2 | Symbol map + documentation coverage | ✅ done | 7 kinds incl. methods; JSDoc-based doc coverage per file; 11 tests green |
-| 3 | Type relationship graph | ⬜ | |
+| 2 | Symbol map + documentation coverage | ✅ done | commit 7a67d48 — 7 kinds incl. methods; JSDoc doc coverage per file |
+| 3 | Type relationship graph | ✅ done | extends/implements/alias via checker; alias-following resolution; 15 tests green |
 | 4 | Static call graph | ⬜ | |
 | 5 | Complexity metrics + git churn overlays | ⬜ | |
 | 6 | Global/API usage map | ⬜ | |

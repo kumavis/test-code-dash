@@ -41,6 +41,6 @@ test('doc coverage per file', () => {
   assert.equal(cov['src/services/storage.ts'], 1);
   assert.equal(cov['src/services/network.ts'], 0);
   assert.equal(cov['src/index.ts'], null); // nothing exported
-  // models.ts: AnimalKind, Animal, Dog documented; Puppy not -> 3/4
-  assert.equal(cov['src/models.ts'], 0.75);
+  // models.ts: AnimalKind, Resident, Animal, Dog documented; Puppy not -> 4/5
+  assert.equal(cov['src/models.ts'], 0.8);
 });

@@ -56,8 +56,6 @@ assert.equal(networkFile.docCoverage, 0); // ping is exported and undocumented
 const storageFile = model.files.find((f) => f.path === 'src/services/storage.ts');
 assert.equal(storageFile.docCoverage, 1);
 
-/* ASPIRATIONAL — uncomment each section as its phase lands.
-
 // ---- Phase 3: type relationship graph ----
 assert.ok(
   model.typeGraph.some(
@@ -75,6 +73,8 @@ assert.ok(
       e.relation === 'extends',
   ),
 );
+
+/* ASPIRATIONAL — uncomment each section as its phase lands.
 
 // ---- Phase 4: static call graph ----
 assert.ok(

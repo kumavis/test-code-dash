@@ -3,6 +3,7 @@ import type { AnalysisModel, FileInfo } from '../model.js';
 import { loadProject, relPath } from './project.js';
 import { buildModuleGraph } from './modules.js';
 import { applyDocCoverage, collectSymbols, toSymbolInfos } from './symbols.js';
+import { buildTypeGraph } from './types.js';
 
 export const TOOL_NAME = 'code-analysis-dashboard';
 export const TOOL_VERSION = '0.1.0';
@@ -36,7 +37,7 @@ export function analyze(projectRoot: string): AnalysisModel {
     files,
     moduleGraph: buildModuleGraph(project),
     symbols: toSymbolInfos(symbolTable),
-    typeGraph: [],
+    typeGraph: buildTypeGraph(project, symbolTable),
     callGraph: { edges: [], uncalled: [] },
     apiUsage: [],
   };

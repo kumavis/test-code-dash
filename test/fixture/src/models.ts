@@ -1,6 +1,9 @@
 /** The kinds of animals the shelter tracks. */
 export type AnimalKind = 'dog' | 'cat';
 
+/** A registered shelter occupant: alias-edge target for the type graph. */
+export type Resident = Animal;
+
 /** Something that can make noise and be identified. */
 export interface Animal {
   readonly name: string;
