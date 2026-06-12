@@ -74,8 +74,6 @@ assert.ok(
   ),
 );
 
-/* ASPIRATIONAL — uncomment each section as its phase lands.
-
 // ---- Phase 4: static call graph ----
 assert.ok(
   model.callGraph.edges.some(
@@ -90,6 +88,8 @@ assert.ok(
   ),
 );
 assert.ok(model.callGraph.uncalled.includes('src/dead.ts#unreachableHelper'));
+
+/* ASPIRATIONAL — uncomment each section as its phase lands.
 
 // ---- Phase 5: complexity + churn overlays ----
 const classify = byId.get('src/app.ts#classify');

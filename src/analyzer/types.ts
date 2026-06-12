@@ -2,6 +2,7 @@ import ts from 'typescript';
 import type { TypeEdge } from '../model.js';
 import type { LoadedProject } from './project.js';
 import type { SymbolTable } from './symbols.js';
+import { resolveNodeToSymbolId } from './resolve.js';
 
 /** Layer 3: extends / implements / alias edges between project type declarations. */
 export function buildTypeGraph(project: LoadedProject, table: SymbolTable): TypeEdge[] {
@@ -9,19 +10,8 @@ export function buildTypeGraph(project: LoadedProject, table: SymbolTable): Type
   const edges: TypeEdge[] = [];
   const seen = new Set<string>();
 
-  const resolveToId = (node: ts.Node): string | undefined => {
-    let symbol = checker.getSymbolAtLocation(node);
-    if (!symbol) return undefined;
-    if (symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
-    for (const decl of symbol.declarations ?? []) {
-      const id = table.idByNode.get(decl);
-      if (id) return id;
-    }
-    return undefined;
-  };
-
   const addEdge = (from: string, toNode: ts.Node, relation: TypeEdge['relation']): void => {
-    const to = resolveToId(toNode);
+    const to = resolveNodeToSymbolId(checker, table, toNode);
     if (!to || to === from) return;
     const key = `${from}|${to}|${relation}`;
     if (seen.has(key)) return;
