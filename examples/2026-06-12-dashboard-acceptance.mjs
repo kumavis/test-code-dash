@@ -89,14 +89,14 @@ assert.ok(
 );
 assert.ok(model.callGraph.uncalled.includes('src/dead.ts#unreachableHelper'));
 
-/* ASPIRATIONAL — uncomment each section as its phase lands.
-
 // ---- Phase 5: complexity + churn overlays ----
 const classify = byId.get('src/app.ts#classify');
 assert.ok(classify.complexity >= 8, `classify complexity ${classify.complexity}`);
 assert.ok(byId.get('src/util/b.ts#stripPunctuation').complexity <= 2);
 // Fixture lives inside this git repo, so churn is a number >= 1.
 assert.ok(appFile.churn >= 1);
+
+/* ASPIRATIONAL — uncomment each section as its phase lands.
 
 // ---- Phase 6: global/API usage map ----
 const categories = new Set(model.apiUsage.map((u) => u.category));

@@ -29,6 +29,17 @@ function isDocumented(node: ts.Node): boolean {
   return ts.getJSDocCommentsAndTags(node).length > 0;
 }
 
+/** True for collected symbols whose declaration carries executable code. */
+export function isFunctionLikeSymbolNode(node: ts.Node): boolean {
+  if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) return true;
+  if (ts.isConstructorDeclaration(node)) return true;
+  if (ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node)) return true;
+  if (ts.isVariableDeclaration(node) && node.initializer) {
+    return ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer);
+  }
+  return false;
+}
+
 interface CollectedSymbol extends SymbolInfo {
   /** The declaration node, for downstream layers (call graph, complexity). */
   node: ts.Node;

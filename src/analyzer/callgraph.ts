@@ -1,22 +1,12 @@
 import ts from 'typescript';
 import type { CallEdge, CallGraph } from '../model.js';
 import { relPath, type LoadedProject } from './project.js';
-import type { SymbolTable } from './symbols.js';
+import { isFunctionLikeSymbolNode, type SymbolTable } from './symbols.js';
 import { resolveNodeToSymbolId } from './resolve.js';
 
 /** Id used as the caller for calls made at a module's top level. */
 export function moduleCallerId(file: string): string {
   return `${file}#<module>`;
-}
-
-function isFunctionLikeSymbolNode(node: ts.Node): boolean {
-  if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) return true;
-  if (ts.isConstructorDeclaration(node)) return true;
-  if (ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node)) return true;
-  if (ts.isVariableDeclaration(node) && node.initializer) {
-    return ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer);
-  }
-  return false;
 }
 
 /**

@@ -5,6 +5,8 @@ import { buildModuleGraph } from './modules.js';
 import { applyDocCoverage, collectSymbols, toSymbolInfos } from './symbols.js';
 import { buildTypeGraph } from './types.js';
 import { buildCallGraph } from './callgraph.js';
+import { applyComplexity } from './metrics.js';
+import { applyChurn } from './churn.js';
 
 export const TOOL_NAME = 'code-analysis-dashboard';
 export const TOOL_VERSION = '0.1.0';
@@ -26,6 +28,8 @@ export function analyze(projectRoot: string): AnalysisModel {
 
   const symbolTable = collectSymbols(project);
   applyDocCoverage(files, symbolTable);
+  applyComplexity(symbolTable);
+  applyChurn(files, root);
 
   return {
     meta: {
