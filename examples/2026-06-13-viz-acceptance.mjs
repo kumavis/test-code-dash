@@ -40,12 +40,12 @@ for (const ctl of ["control('structure'", "control('layout'", "control('size'",
   assert.ok(html.includes(ctl), `missing control wiring ${ctl}`);
 }
 
-/* ASPIRATIONAL — uncomment each section as its phase lands.
-
 // ---- Phase 3: filesystem + symbol structures, tree layout ----
 assert.ok(html.includes('filesystem'));
 assert.ok(html.includes('symbols'));
 assert.ok(html.includes('tree'));
+
+/* ASPIRATIONAL — uncomment each section as its phase lands.
 
 // ---- Phase 4: treemap representation ----
 assert.ok(html.includes('treemap'));

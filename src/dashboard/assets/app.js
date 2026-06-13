@@ -186,6 +186,52 @@
         return { nodes, edges };
       },
     },
+    filesystem: {
+      label: 'File system', hierarchical: true,
+      onSelect: (n) => (n.meta.type === 'file' ? showFile(n.id) : showDir(n.meta.dir)),
+      build() {
+        const nodes = [];
+        const seen = new Set();
+        const edgeSet = new Set();
+        const edges = [];
+        const ensure = (id, label, meta) => { if (!seen.has(id)) { seen.add(id); nodes.push({ id, label, meta }); } };
+        const linkChild = (parent, child) => { const k = `${parent}|${child}`; if (!edgeSet.has(k)) { edgeSet.add(k); edges.push({ source: parent, target: child, arrow: false }); } };
+        ensure('fs:.', projectName, { type: 'dir', dir: '' });
+        for (const f of MODEL.files) {
+          const segs = f.path.split('/');
+          let parent = 'fs:.', acc = '';
+          for (let i = 0; i < segs.length - 1; i++) {
+            acc = acc ? `${acc}/${segs[i]}` : segs[i];
+            ensure(`fs:${acc}`, segs[i], { type: 'dir', dir: acc });
+            linkChild(parent, `fs:${acc}`);
+            parent = `fs:${acc}`;
+          }
+          ensure(f.path, baseOf(f.path), fileMeta(f.path));
+          linkChild(parent, f.path);
+        }
+        return { nodes, edges, hierarchical: true };
+      },
+    },
+    symbols: {
+      label: 'Symbols (AST)', hierarchical: true,
+      onSelect: (n) => (n.meta.type === 'file' ? showFile(n.id) : showSymbol(n.id)),
+      build() {
+        const nodes = [];
+        const seen = new Set();
+        const edges = [];
+        const ensure = (id, label, meta) => { if (!seen.has(id)) { seen.add(id); nodes.push({ id, label, meta }); } };
+        for (const [file, syms] of symbolsByFile) {
+          ensure(file, baseOf(file), fileMeta(file));
+          for (const s of syms) ensure(s.id, s.name, symbolMeta(s.id));
+          for (const s of syms) {
+            const local = s.id.split('#')[1] || '';
+            const parentId = local.includes('.') ? `${file}#${local.split('.').slice(0, -1).join('.')}` : file;
+            edges.push({ source: seen.has(parentId) ? parentId : file, target: s.id, arrow: false });
+          }
+        }
+        return { nodes, edges, hierarchical: true };
+      },
+    },
   };
 
   // ---------- node encoders ----------
@@ -289,8 +335,11 @@
     return { tick };
   }
 
-  // ---------- force-graph renderer ----------
-  function renderForceGraph(container, built, opts) {
+  // ---------- graph renderer (force-animated or static positions) ----------
+  // opts.animate === false expects nodes to already carry x/y (set by a
+  // positional layout such as the tree); otherwise a force sim places them.
+  function mountGraph(container, built, opts) {
+    const animate = opts.animate !== false;
     const width = container.clientWidth || 900;
     const height = container.clientHeight || 600;
     const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}` });
@@ -313,7 +362,7 @@
     const nodes = built.nodes;
     const links = built.edges;
     const nodeById = new Map(nodes.map((n) => [n.id, n]));
-    const sim = simulate(nodes, links, width, height);
+    const sim = animate ? simulate(nodes, links, width, height) : null;
     const showLinkLabels = opts.linkLabel !== 'none' && links.length <= 90;
 
     const linkEls = links.filter((l) => nodeById.has(l.source) && nodeById.has(l.target)).map((l) => {
@@ -370,8 +419,13 @@
       alpha *= 0.97; sim.tick(alpha); position();
       requestAnimationFrame(loop);
     }
-    requestAnimationFrame(loop);
-    const reheat = (a) => { const cold = alpha < 0.004; alpha = Math.max(alpha, a); if (cold) requestAnimationFrame(loop); };
+    let reheat = () => {};
+    if (animate) {
+      requestAnimationFrame(loop);
+      reheat = (a) => { const cold = alpha < 0.004; alpha = Math.max(alpha, a); if (cold) requestAnimationFrame(loop); };
+    } else {
+      position(); // static layout already assigned x/y
+    }
 
     const toWorld = (ev) => {
       const rect = svg.getBoundingClientRect();
@@ -425,8 +479,79 @@
     return { selectNode, applySearch };
   }
 
+  // ---------- hierarchy (containment for hierarchical structures, else
+  // synthesized by directory so tree/treemap always have something) ----------
+  function toHierarchy(built) {
+    const nodeMap = new Map(built.nodes.map((n) => [n.id, n]));
+    const childMap = new Map();
+    if (built.hierarchical) {
+      const indeg = new Map(built.nodes.map((n) => [n.id, 0]));
+      for (const e of built.edges) {
+        if (!childMap.has(e.source)) childMap.set(e.source, []);
+        childMap.get(e.source).push(e.target);
+        indeg.set(e.target, (indeg.get(e.target) ?? 0) + 1);
+      }
+      const roots = built.nodes.filter((n) => (indeg.get(n.id) ?? 0) === 0).map((n) => n.id);
+      return { nodeMap, childMap, roots, edges: built.edges };
+    }
+    // synthesize: ROOT -> directory segments -> leaf nodes
+    const edges = [];
+    const ROOT = '∑root';
+    const ensure = (id, label, meta) => {
+      if (!nodeMap.has(id)) { nodeMap.set(id, { id, label, meta, synthetic: true }); childMap.set(id, []); }
+      return id;
+    };
+    ensure(ROOT, projectName, { type: 'group', dir: '' });
+    const linkChild = (parent, child) => {
+      if (!childMap.has(parent)) childMap.set(parent, []);
+      if (!childMap.get(parent).includes(child)) { childMap.get(parent).push(child); edges.push({ source: parent, target: child, arrow: false }); }
+    };
+    for (const n of built.nodes) {
+      const dir = n.meta.dir && n.meta.dir !== '.' ? n.meta.dir : '';
+      let parent = ROOT, acc = '';
+      for (const seg of dir ? dir.split('/') : []) {
+        acc = acc ? `${acc}/${seg}` : seg;
+        ensure(`dir:${acc}`, seg, { type: 'group', dir: acc });
+        linkChild(parent, `dir:${acc}`);
+        parent = `dir:${acc}`;
+      }
+      linkChild(parent, n.id);
+    }
+    return { nodeMap, childMap, roots: [ROOT], edges };
+  }
+
+  // ---------- tree layout (tidy horizontal hierarchy) ----------
+  function layoutTree(container, built, opts) {
+    const width = container.clientWidth || 900;
+    const height = container.clientHeight || 600;
+    const { nodeMap, childMap, roots, edges } = built.hierarchy;
+    let leaf = 0;
+    let maxDepth = 0;
+    const placed = new Map();
+    const walk = (id, depth) => {
+      maxDepth = Math.max(maxDepth, depth);
+      const kids = childMap.get(id) || [];
+      let order;
+      if (!kids.length) order = leaf++;
+      else { const os = kids.map((k) => walk(k, depth + 1)); order = (os[0] + os[os.length - 1]) / 2; }
+      placed.set(id, { depth, order });
+      return order;
+    };
+    for (const r of roots) walk(r, 0);
+    const leaves = Math.max(1, leaf);
+    const xGap = Math.max(110, (width - 120) / (maxDepth + 1));
+    const allNodes = [...nodeMap.values()];
+    for (const n of allNodes) {
+      const p = placed.get(n.id) || { depth: 0, order: 0 };
+      n.x = 70 + p.depth * xGap;
+      n.y = 40 + (p.order / leaves) * (height - 80) + (height - 80) / (leaves * 2);
+    }
+    return mountGraph(container, { nodes: allNodes, edges }, { ...opts, animate: false });
+  }
+
   const LAYOUTS = {
-    force: { label: 'Force-directed', render: renderForceGraph },
+    force: { label: 'Force-directed', render: (c, b, o) => mountGraph(c, b, { ...o, animate: true }) },
+    tree: { label: 'Tree (hierarchy)', render: layoutTree },
   };
 
   // ---------- detail panel ----------
@@ -536,6 +661,21 @@
     ])));
   }
 
+  function showDir(dir) {
+    aside.textContent = '';
+    aside.append(el('div', { class: 'kind', text: 'directory' }));
+    aside.append(el('h2', { text: dir || projectName }));
+    const here = MODEL.files.filter((f) => dirOf(f.path) === (dir || '.') || (dir && f.path.startsWith(`${dir}/`)));
+    const loc = here.reduce((n, f) => n + f.loc, 0);
+    aside.append(el('p', {}, [el('span', { class: 'badge', text: `${here.length} files`, style: 'margin-right:6px' }), el('span', { class: 'badge', text: `${loc} lines` })]));
+    aside.append(el('h3', { text: 'files' }));
+    aside.append(table(['file', 'loc', 'cx'], here.slice(0, 60).map((f) => [
+      link(f.path, () => showFile(f.path)),
+      el('span', { text: String(f.loc) }),
+      el('span', { text: String(maxComplexityByFile.get(f.path) ?? '—') }),
+    ])));
+  }
+
   // ---------- chrome + control state ----------
   const graphHost = el('div', { id: 'graph' });
   const legend = el('div', { class: 'legend' });
@@ -594,10 +734,16 @@
       active = { applySearch() {}, selectNode() {} };
       return;
     }
-    computeDegrees(built.nodes, built.edges);
-    applySize(built.nodes, state.size);
-    applyColor(built.nodes, state.color);
-    applyLinkWidth(built.edges);
+    // Positional layouts (tree, treemap) need a hierarchy: containment for
+    // hierarchical structures, otherwise synthesized by directory.
+    const needsHierarchy = state.layout === 'tree' || state.layout === 'treemap';
+    if (needsHierarchy) built.hierarchy = toHierarchy(built);
+    const renderNodes = needsHierarchy ? [...built.hierarchy.nodeMap.values()] : built.nodes;
+    const renderEdges = needsHierarchy ? built.hierarchy.edges : built.edges;
+    computeDegrees(renderNodes, renderEdges);
+    applySize(renderNodes, state.size);
+    applyColor(renderNodes, state.color);
+    applyLinkWidth(renderEdges);
     const layout = LAYOUTS[state.layout];
     active = layout.render(graphHost, built, {
       onSelect: structure.onSelect, linkLabel: state.linkLabel, linkText, tooltip,
