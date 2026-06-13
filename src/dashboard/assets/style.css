@@ -157,6 +157,16 @@ text.link-label {
   pointer-events: none;
 }
 
+rect.tm.leaf { cursor: pointer; }
+rect.tm.leaf:hover { stroke: #fff; stroke-width: 1.2px; }
+rect.tm.selected { stroke: #fff !important; stroke-width: 2px !important; }
+rect.tm.dim { opacity: 0.12; }
+text.tm-label { fill: #0f1419; font-size: 9px; pointer-events: none; font-weight: 600; }
+text.tm-group {
+  fill: var(--muted); font-size: 9px; pointer-events: none;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+
 circle.node { cursor: pointer; }
 circle.node.dim { opacity: 0.18; }
 circle.node.selected { stroke: #fff !important; stroke-width: 2.5px !important; }

@@ -549,9 +549,105 @@
     return mountGraph(container, { nodes: allNodes, edges }, { ...opts, animate: false });
   }
 
+  // ---------- treemap (nested squares) ----------
+  // Squarified treemap (Bruls et al.): rows of tiles chosen to keep aspect
+  // ratios near 1. Each level lays out its own children inside its rectangle.
+  function squarify(items, x, y, w, h, valueOf, place) {
+    if (w <= 0 || h <= 0 || !items.length) return;
+    const total = items.reduce((s, it) => s + valueOf(it), 0) || 1;
+    const scale = (w * h) / total;
+    const areas = items.map((it) => ({ it, area: Math.max(0, valueOf(it) * scale) })).filter((a) => a.area > 0);
+    const worst = (row, len) => {
+      if (!row.length) return Infinity;
+      const s = row.reduce((a, r) => a + r.area, 0);
+      const mx = Math.max(...row.map((r) => r.area)), mn = Math.min(...row.map((r) => r.area));
+      return Math.max((len * len * mx) / (s * s), (s * s) / (len * len * mn));
+    };
+    const placeRow = (row, rect) => {
+      const sum = row.reduce((a, r) => a + r.area, 0);
+      if (rect.w >= rect.h) {
+        const sw = sum / rect.h; let yy = rect.y;
+        for (const r of row) { const hh = r.area / sw; place(r.it, rect.x, yy, sw, hh); yy += hh; }
+        return { x: rect.x + sw, y: rect.y, w: rect.w - sw, h: rect.h };
+      }
+      const sh = sum / rect.w; let xx = rect.x;
+      for (const r of row) { const ww = r.area / sh; place(r.it, xx, rect.y, ww, sh); xx += ww; }
+      return { x: rect.x, y: rect.y + sh, w: rect.w, h: rect.h - sh };
+    };
+    let rect = { x, y, w, h }, row = [], i = 0;
+    while (i < areas.length) {
+      const len = Math.min(rect.w, rect.h);
+      const next = [...row, areas[i]];
+      if (!row.length || worst(row, len) >= worst(next, len)) { row = next; i++; }
+      else { rect = placeRow(row, rect); row = []; }
+    }
+    if (row.length) placeRow(row, rect);
+  }
+
+  function layoutTreemap(container, built, opts) {
+    const width = container.clientWidth || 900;
+    const height = container.clientHeight || 600;
+    const { nodeMap, childMap, roots } = built.hierarchy;
+    const sizeMetric = SIZE_METRICS[state.size];
+    const valCache = new Map();
+    const valueOf = (id) => {
+      if (valCache.has(id)) return valCache.get(id);
+      const kids = childMap.get(id) || [];
+      let v;
+      if (!kids.length) { const raw = sizeMetric.value(nodeMap.get(id)); v = typeof raw === 'number' && isFinite(raw) && raw > 0 ? raw : 1; }
+      else v = kids.reduce((s, k) => s + valueOf(k), 0) || 1;
+      valCache.set(id, v); return v;
+    };
+    const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}` });
+    container.append(svg);
+    container.append(el('div', { class: 'hint', text: `nested squares sized by ${sizeMetric.label.toLowerCase()} · click a tile for details` }));
+    const rectEls = [];
+    const draw = (id, x, y, w, h, depth) => {
+      const n = nodeMap.get(id);
+      const kids = childMap.get(id) || [];
+      const leaf = !kids.length;
+      const rect = svgEl('rect', {
+        x, y, width: Math.max(0, w), height: Math.max(0, h),
+        class: 'tm' + (leaf ? ' leaf' : ''), fill: leaf ? n.color : 'none',
+        stroke: leaf ? '#0f1419' : '#2a3340', 'stroke-width': leaf ? 0.5 : depth ? 1 : 0,
+      });
+      rect.append(svgEl('title'));
+      rect.querySelector('title').textContent = opts.tooltip(n);
+      svg.append(rect);
+      rectEls.push({ rect, n, leaf });
+      if (leaf) {
+        rect.addEventListener('click', (e) => { e.stopPropagation(); selectNode(id); opts.onSelect(n); });
+        if (w > 34 && h > 14) { const t = svgEl('text', { x: x + 3, y: y + 12, class: 'tm-label' }); t.textContent = n.label; svg.append(t); }
+        return;
+      }
+      const pad = 2, header = depth && h > 24 && w > 44 ? 13 : 0;
+      if (header) { const t = svgEl('text', { x: x + 3, y: y + 10, class: 'tm-group' }); t.textContent = n.label; svg.append(t); }
+      const sorted = [...kids].sort((a, b) => valueOf(b) - valueOf(a));
+      squarify(sorted, x + pad, y + pad + header, w - 2 * pad, h - 2 * pad - header, valueOf,
+        (cid, cx, cy, cw, ch) => draw(cid, cx, cy, cw, ch, depth + 1));
+    };
+    for (const r of roots) draw(r, 0, 0, width, height, 0);
+
+    function selectNode(id) {
+      for (const { rect } of rectEls) rect.classList.remove('selected');
+      const hit = rectEls.find((r) => r.n.id === id);
+      if (hit) hit.rect.classList.add('selected');
+    }
+    function applySearch(query) {
+      const q = query.trim().toLowerCase();
+      for (const { rect, n, leaf } of rectEls) {
+        if (!leaf) continue;
+        const m = !q || n.id.toLowerCase().includes(q) || n.label.toLowerCase().includes(q);
+        rect.classList.toggle('dim', !m);
+      }
+    }
+    return { selectNode, applySearch };
+  }
+
   const LAYOUTS = {
     force: { label: 'Force-directed', render: (c, b, o) => mountGraph(c, b, { ...o, animate: true }) },
     tree: { label: 'Tree (hierarchy)', render: layoutTree },
+    treemap: { label: 'Treemap (nested squares)', render: layoutTreemap },
   };
 
   // ---------- detail panel ----------

@@ -57,6 +57,19 @@ test('dashboard renders and every structure switches without errors', { skip: !c
   await page.waitForTimeout(150);
   assert.equal(await page.locator('circle.node').count(), 8);
 
+  // Tree layout draws nodes including synthesized directory groups.
+  await page.locator('select[data-control="layout"]').selectOption('tree');
+  await page.waitForTimeout(200);
+  assert.ok((await page.locator('circle.node').count()) > 8, 'tree adds directory group nodes');
+
+  // Filesystem structure + treemap: every source file becomes a leaf tile.
+  await page.locator('select[data-control="structure"]').selectOption('filesystem');
+  await page.locator('select[data-control="layout"]').selectOption('treemap');
+  await page.waitForTimeout(200);
+  assert.equal(await page.locator('rect.tm.leaf').count(), 8);
+  await page.locator('rect.tm.leaf').first().click();
+  assert.ok((await page.locator('aside h2').textContent()).length > 0);
+
   await browser.close();
   assert.deepEqual(errors, []);
 });

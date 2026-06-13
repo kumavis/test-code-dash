@@ -45,10 +45,10 @@ assert.ok(html.includes('filesystem'));
 assert.ok(html.includes('symbols'));
 assert.ok(html.includes('tree'));
 
-/* ASPIRATIONAL — uncomment each section as its phase lands.
-
 // ---- Phase 4: treemap representation ----
 assert.ok(html.includes('treemap'));
+
+/* ASPIRATIONAL — uncomment each section as its phase lands.
 
 // ---- Phase 5: usage exploration ----
 assert.ok(html.includes('references'));
