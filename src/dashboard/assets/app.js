@@ -133,6 +133,13 @@
   // ---------- generic graph view ----------
   function renderGraph(container, spec) {
     container.textContent = '';
+    // Real projects have empty layers (a pure-JS project has no type graph;
+    // a project touching no privileged APIs has an empty API map). Show that
+    // explicitly rather than rendering a blank canvas that looks broken.
+    if (spec.nodes.length === 0) {
+      container.append(el('div', { class: 'view-empty', text: spec.emptyMessage || 'No data for this view.' }));
+      return { selectNode() {}, applySearch() {} };
+    }
     const width = container.clientWidth || 900;
     const height = container.clientHeight || 600;
     const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}` });
@@ -541,7 +548,12 @@
     const links = MODEL.typeGraph.map((e) => ({
       source: e.from, target: e.to, ...relStyle[e.relation],
     }));
-    return renderGraph(graphHost, { nodes, links, onSelect: (n) => showSymbol(n.id) });
+    return renderGraph(graphHost, {
+      nodes,
+      links,
+      onSelect: (n) => showSymbol(n.id),
+      emptyMessage: 'No type relationships found — no classes with extends/implements clauses and no type aliases (typical of plain-JS projects).',
+    });
   }
 
   function viewCalls() {
@@ -567,7 +579,12 @@
       })),
     ];
     const links = MODEL.callGraph.edges.map((e) => ({ source: e.from, target: e.to }));
-    return renderGraph(graphHost, { nodes, links, onSelect: (n) => showSymbol(n.id) });
+    return renderGraph(graphHost, {
+      nodes,
+      links,
+      onSelect: (n) => showSymbol(n.id),
+      emptyMessage: 'No call graph — no function-like symbols were found.',
+    });
   }
 
   function viewApis() {
@@ -605,6 +622,7 @@
       nodes,
       links,
       onSelect: (n) => (n.id.startsWith('cat:') ? showApiCategory(n.id.slice(4)) : showFile(n.id)),
+      emptyMessage: 'No privileged API usage detected — no file system, network, shell, crypto, DOM, storage, or database access found.',
     });
   }
 

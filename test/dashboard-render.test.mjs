@@ -57,3 +57,26 @@ test('dashboard renders and all views switch without errors', { skip: !chromium 
   await browser.close();
   assert.deepEqual(errors, []);
 });
+
+test('empty layers show an explanatory message, not a blank canvas', { skip: !chromium }, async () => {
+  const { writeFileSync, mkdirSync } = await import('node:fs');
+  // A plain-JS project with no classes/type-aliases -> empty Types view.
+  const proj = mkdtempSync(join(tmpdir(), 'cad-jsonly-'));
+  mkdirSync(join(proj, 'src'), { recursive: true });
+  writeFileSync(join(proj, 'src', 'index.js'), 'export const f = () => f();\n');
+  const out = mkdtempSync(join(tmpdir(), 'cad-jsonly-out-'));
+  execFileSync('node', [join(root, 'dist', 'cli.js'), proj, '-o', out]);
+
+  const browser = await chromium.launch();
+  const page = await browser.newPage();
+  const errors = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.goto('file://' + join(out, 'index.html'));
+  await page.getByRole('button', { name: 'Types', exact: true }).click();
+  await page.waitForTimeout(150);
+  assert.equal(await page.locator('circle.node').count(), 0);
+  assert.ok(await page.locator('.view-empty').isVisible(), 'empty-state message shown');
+  assert.match(await page.locator('.view-empty').textContent(), /type relationship/i);
+  await browser.close();
+  assert.deepEqual(errors, []);
+});

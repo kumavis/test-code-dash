@@ -115,11 +115,21 @@ export function collectSymbols(project: LoadedProject): SymbolTable {
       } else if (ts.isEnumDeclaration(stmt)) {
         add(stmt, stmt.name.text, 'enum', exported || exportedNames.has(stmt.name.text));
       } else if (ts.isVariableStatement(stmt)) {
-        for (const decl of stmt.declarationList.declarations) {
-          if (ts.isIdentifier(decl.name)) {
-            // JSDoc attaches to the statement, not the declaration.
-            add(decl, decl.name.text, 'variable', exported || exportedNames.has(decl.name.text), stmt);
+        // Walks both plain identifiers and object/array binding patterns,
+        // recursing into nesting. Destructuring is ubiquitous in real code
+        // (`const { a, b } = x`, `const [first] = xs`); each bound name is a
+        // distinct top-level symbol. JSDoc attaches to the statement.
+        const addBinding = (nameNode: ts.BindingName, declNode: ts.Node): void => {
+          if (ts.isIdentifier(nameNode)) {
+            add(declNode, nameNode.text, 'variable', exported || exportedNames.has(nameNode.text), stmt);
+          } else {
+            for (const el of nameNode.elements) {
+              if (ts.isBindingElement(el)) addBinding(el.name, el); // skips array holes
+            }
           }
+        };
+        for (const decl of stmt.declarationList.declarations) {
+          addBinding(decl.name, decl);
         }
       }
     }

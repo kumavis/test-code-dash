@@ -101,6 +101,25 @@ Progressive zoom, "city map" mental model:
 - **Symbol id = `relativePath#qualifiedName`** — human-readable, stable,
   and unifies cross-layer linking in the UI.
 
+## Battle-hardening (2026-06-13)
+
+Validated against a real target (`@endo/chat` from `endojs/endo-but-for-bots`:
+107 files, ~47.5k lines of mostly large ESM `.js`). Two fixes landed:
+
+- **Symbol collector handles binding patterns.** `const { a, b } = x` and
+  `const [x] = xs` were dropped (only plain identifiers were captured); a
+  recursive walk now emits one symbol per bound name (local binding name,
+  nested patterns, array holes skipped). 390 such declarations existed in
+  the target.
+- **Empty layers show an explanatory message** instead of a blank canvas
+  (a plain-JS project has no type graph). `renderGraph` short-circuits on
+  zero nodes with a per-view `emptyMessage`.
+
+Confirmed robust: no crash/leak on the real tree, churn re-basing for a
+package nested inside a larger repo, and error-free render of the 107-node /
+393-call-edge graph across all views. JSDoc-type extraction, re-export
+barrels, and `export default` symbols are deferred (`DEFERRED.md`).
+
 ## Test strategy
 
 `node:test` suites under `test/`, run against the compiled `dist/` output

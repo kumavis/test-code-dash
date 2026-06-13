@@ -31,6 +31,20 @@ test('doc detection: JSDoc counts, line comments do not', () => {
   assert.equal(byId.get('src/services/network.ts#ping').documented, false);
 });
 
+test('destructuring declarations yield one symbol per bound name', () => {
+  // export const { prefix, nested: { tag } } = config
+  assert.equal(byId.get('src/util/a.ts#prefix').kind, 'variable');
+  assert.equal(byId.get('src/util/a.ts#prefix').exported, true);
+  assert.equal(byId.get('src/util/a.ts#tag').exported, true); // nested pattern
+  // const [, second] = pair -> only `second`, the leading hole is skipped
+  assert.ok(byId.has('src/util/a.ts#second'));
+  assert.equal(byId.get('src/util/a.ts#second').exported, false);
+  assert.ok(byId.has('src/util/a.ts#config'));
+  assert.ok(byId.has('src/util/a.ts#pair'));
+  // binding names, not property names: `nested` is consumed, not emitted
+  assert.ok(!byId.has('src/util/a.ts#nested'));
+});
+
 test('symbol spans are 1-based line ranges', () => {
   const dog = byId.get('src/models.ts#Dog');
   assert.ok(dog.line > 1 && dog.endLine > dog.line);

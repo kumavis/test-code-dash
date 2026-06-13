@@ -96,6 +96,12 @@ main { flex: 1; display: flex; min-height: 0; }
   color: var(--muted); font-size: 11px; pointer-events: none;
 }
 
+.view-empty {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  max-width: 440px; text-align: center; color: var(--muted);
+  font-size: 13px; line-height: 1.6; padding: 0 20px;
+}
+
 aside {
   width: 360px;
   background: var(--panel);
