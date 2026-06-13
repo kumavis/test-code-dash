@@ -3,7 +3,7 @@
 **Date:** 2026-06-13
 **Track:** Visualization Composition & Exploration (extends the Code Analysis
 Dashboard track)
-**Status:** In progress
+**Status:** Complete (all 6 phases; PIR filed)
 **Acceptance spec:** `examples/2026-06-13-viz-acceptance.mjs`
 
 ## Progress Tracker
@@ -16,7 +16,7 @@ Dashboard track)
 | 3 | Filesystem + Symbol (AST) structures, Tree layout | ✅ done | filesystem (dirs+files), symbols (file→symbol→member), tree layout; flat structures get synthesized dir hierarchy; 42 tests green |
 | 4 | Treemap representation (nested squares) | ✅ done | squarified; dir groups nested; sized/colored by any metric; 42 tests green |
 | 5 | Type/symbol usage exploration (focus + references panel) | ✅ done | references structure; panel "used at" + focus-usages; fade highlight + clear; 43 tests green |
-| 6 | Tests, capstone refresh, docs | ⬜ | |
+| 6 | Tests, capstone refresh, docs | ✅ done | capstone verified; README composable-controls rewrite; PIR filed. Track complete. |
 
 Statuses: ⬜ not started / 🔄 in progress / ✅ done / ⏸️ blocked
 
