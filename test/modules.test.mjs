@@ -32,6 +32,10 @@ test('import edges resolve across directories', () => {
   assert.ok(!edges.some((e) => e.includes('src/dead.ts')));
 });
 
+test('every edge carries an import-multiplicity weight >= 1', () => {
+  assert.ok(model.moduleGraph.edges.every((e) => Number.isInteger(e.weight) && e.weight >= 1));
+});
+
 test('the util/a <-> util/b cycle is detected, and only it', () => {
   assert.deepEqual(model.moduleGraph.cycles, [['src/util/a.ts', 'src/util/b.ts']]);
 });

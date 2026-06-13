@@ -1,9 +1,10 @@
 'use strict';
 /*
  * Code Analysis Dashboard renderer. Self-contained vanilla JS: reads
- * window.MODEL (inlined by the generator), renders four linked views —
- * Modules, Types, Calls, APIs — with overlay heat-maps, search, and a
- * cross-linked detail panel. No external dependencies by design.
+ * window.MODEL (inlined by the generator) and draws it through composable,
+ * orthogonal controls — Structure (what the graph is) x Layout (how it is
+ * positioned) x Node encoding (size/color) x Link encoding (label/width) —
+ * plus a cross-linked detail panel. No external dependencies by design.
  */
 (() => {
   const MODEL = window.MODEL;
@@ -22,33 +23,47 @@
     if (!apiByFile.has(u.file)) apiByFile.set(u.file, []);
     apiByFile.get(u.file).push(u);
   }
+  const refsByTarget = new Map();
+  for (const r of MODEL.references || []) {
+    if (!refsByTarget.has(r.to)) refsByTarget.set(r.to, []);
+    refsByTarget.get(r.to).push(r);
+  }
   const cycleMembers = new Set(MODEL.moduleGraph.cycles.flat());
+  const cyclePairs = new Set();
+  for (const cycle of MODEL.moduleGraph.cycles) {
+    for (const a of cycle) for (const b of cycle) cyclePairs.add(`${a}|${b}`);
+  }
   const uncalledSet = new Set(MODEL.callGraph.uncalled);
+  const maxComplexityByFile = new Map();
+  for (const s of MODEL.symbols) {
+    if (s.complexity != null) {
+      maxComplexityByFile.set(s.file, Math.max(maxComplexityByFile.get(s.file) ?? 0, s.complexity));
+    }
+  }
 
   const KIND_COLORS = {
-    class: '#4da3ff',
-    interface: '#b18cff',
-    typeAlias: '#5fd0a5',
-    enum: '#ffb86b',
-    function: '#4da3ff',
-    method: '#7fb8f7',
-    variable: '#5fd0a5',
-    module: '#8a95a3',
+    class: '#4da3ff', interface: '#b18cff', typeAlias: '#5fd0a5', enum: '#ffb86b',
+    function: '#4da3ff', method: '#7fb8f7', variable: '#5fd0a5',
+    module: '#8a95a3', file: '#8a95a3', dir: '#5c6877', category: '#2ac3de',
   };
   const API_COLORS = {
-    filesystem: '#ffb86b',
-    network: '#4da3ff',
-    process: '#5fd0a5',
-    shell: '#ff5d5d',
-    crypto: '#b18cff',
-    dom: '#f7768e',
-    storage: '#e0af68',
-    database: '#2ac3de',
+    filesystem: '#ffb86b', network: '#4da3ff', process: '#5fd0a5', shell: '#ff5d5d',
+    crypto: '#b18cff', dom: '#f7768e', storage: '#e0af68', database: '#2ac3de',
   };
+  const SENSITIVITY = { high: '#ff5d5d', medium: '#ffb86b', low: '#5fd0a5', none: '#3a4654' };
+  const SENSITIVITY_RANK = { shell: 3, crypto: 3, process: 2, network: 2, filesystem: 2, database: 2, dom: 1, storage: 1 };
 
-  // ---------- small helpers ----------
+  // ---------- helpers ----------
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const heat = (t) => `hsl(${120 * (1 - clamp(t, 0, 1))} 70% 45%)`;
+  const dirOf = (path) => path.split('/').slice(0, -1).join('/') || '.';
+  const baseOf = (path) => path.split('/').pop();
+
+  function hashHue(str) {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
+    return ((h % 360) + 360) % 360;
+  }
 
   function el(tag, attrs = {}, children = []) {
     const node = document.createElement(tag);
@@ -67,56 +82,200 @@
     return node;
   }
 
-  const dirHue = (() => {
-    const dirs = [...new Set(MODEL.files.map((f) => f.path.split('/').slice(0, -1).join('/')))].sort();
-    const map = new Map(dirs.map((d, i) => [d, (i * 360) / Math.max(1, dirs.length)]));
-    return (path) => map.get(path.split('/').slice(0, -1).join('/')) ?? 0;
-  })();
+  // ---------- node metadata ----------
+  // Every structure emits nodes with a uniform meta bag so encoders work on
+  // any structure without special-casing.
+  function fileSensitivity(path) {
+    const cats = (apiByFile.get(path) || []).map((u) => SENSITIVITY_RANK[u.category] ?? 0);
+    const rank = Math.max(0, ...cats);
+    return rank >= 3 ? 'high' : rank === 2 ? 'medium' : rank === 1 ? 'low' : 'none';
+  }
+  function fileMeta(path) {
+    const f = fileByPath.get(path) || {};
+    return {
+      type: 'file', path, dir: dirOf(path),
+      loc: f.loc ?? null, bytes: f.bytes ?? null, churn: f.churn ?? null,
+      complexity: maxComplexityByFile.get(path) ?? null,
+      docGap: f.docCoverage == null ? null : 1 - f.docCoverage,
+      apiCount: (apiByFile.get(path) || []).length,
+      sensitivity: fileSensitivity(path),
+      cycle: cycleMembers.has(path),
+    };
+  }
+  function symbolMeta(id) {
+    const s = symbolById.get(id);
+    if (!s) return { type: 'pseudo', dir: '', kind: 'module' };
+    return {
+      type: 'symbol', id, kind: s.kind, file: s.file, dir: dirOf(s.file),
+      complexity: s.complexity, documented: s.documented,
+      apiCount: MODEL.apiUsage.filter((u) => u.inSymbol === id).length,
+      uncalled: uncalledSet.has(id),
+    };
+  }
+
+  // ---------- structures (what the graph IS) ----------
+  const STRUCTURES = {
+    modules: {
+      label: 'Module dependencies', onSelect: (n) => showFile(n.id),
+      build() {
+        const nodes = MODEL.moduleGraph.nodes.map((p) => ({
+          id: p, label: baseOf(p), meta: fileMeta(p),
+          stroke: cycleMembers.has(p) ? '#ff5d5d' : null,
+        }));
+        const edges = MODEL.moduleGraph.edges.map((e) => ({
+          source: e.from, target: e.to, weight: e.weight, label: baseOf(e.to),
+          color: cyclePairs.has(`${e.from}|${e.to}`) ? '#ff5d5d' : null,
+        }));
+        return { nodes, edges };
+      },
+    },
+    types: {
+      label: 'Type relationships', onSelect: (n) => showSymbol(n.id),
+      emptyMessage: 'No type relationships found — no classes with extends/implements clauses and no type aliases (typical of plain-JS projects).',
+      build() {
+        const kinds = new Set(['class', 'interface', 'typeAlias', 'enum']);
+        const used = new Set(MODEL.typeGraph.flatMap((e) => [e.from, e.to]));
+        const nodes = MODEL.symbols.filter((s) => kinds.has(s.kind) && (used.has(s.id) || true))
+          .map((s) => ({ id: s.id, label: s.name, meta: symbolMeta(s.id) }));
+        const edges = MODEL.typeGraph.map((e) => ({
+          source: e.from, target: e.to, weight: 1, relation: e.relation, label: e.relation,
+          dash: e.relation === 'implements' ? '6 4' : e.relation === 'alias' ? '2 4' : null,
+        }));
+        return { nodes, edges };
+      },
+    },
+    calls: {
+      label: 'Call graph', onSelect: (n) => showSymbol(n.id),
+      emptyMessage: 'No call graph — no function-like symbols were found.',
+      build() {
+        const pseudo = new Set();
+        for (const e of MODEL.callGraph.edges) if (e.from.endsWith('#<module>')) pseudo.add(e.from);
+        const nodes = [
+          ...MODEL.symbols.filter((s) => s.complexity != null).map((s) => ({
+            id: s.id, label: s.name, meta: symbolMeta(s.id),
+            stroke: uncalledSet.has(s.id) ? '#ff5d5d' : null,
+          })),
+          ...[...pseudo].map((id) => ({ id, label: baseOf(id.split('#')[0]), meta: symbolMeta(id) })),
+        ];
+        const edges = MODEL.callGraph.edges.map((e) => ({ source: e.from, target: e.to, weight: 1, label: baseOf(e.to.split('#').pop()) }));
+        return { nodes, edges };
+      },
+    },
+    apis: {
+      label: 'API usage', onSelect: (n) => (n.id.startsWith('cat:') ? showApiCategory(n.id.slice(4)) : showFile(n.id)),
+      emptyMessage: 'No privileged API usage detected — no file system, network, shell, crypto, DOM, storage, or database access found.',
+      build() {
+        const categories = [...new Set(MODEL.apiUsage.map((u) => u.category))].sort();
+        const files = [...new Set(MODEL.apiUsage.map((u) => u.file))].sort();
+        const counts = new Map();
+        for (const u of MODEL.apiUsage) {
+          const key = `${u.category}|${u.file}`;
+          counts.set(key, (counts.get(key) ?? 0) + 1);
+        }
+        const nodes = [
+          ...categories.map((c) => ({
+            id: `cat:${c}`, label: c, fixedColor: API_COLORS[c] || '#8a95a3',
+            meta: { type: 'category', dir: '', kind: 'category', apiCount: MODEL.apiUsage.filter((u) => u.category === c).length },
+          })),
+          ...files.map((f) => ({ id: f, label: baseOf(f), meta: fileMeta(f) })),
+        ];
+        const edges = [...counts.entries()].map(([key, n]) => {
+          const [category, file] = key.split('|');
+          return { source: `cat:${category}`, target: file, weight: n, color: API_COLORS[category], label: String(n), arrow: false };
+        });
+        return { nodes, edges };
+      },
+    },
+  };
+
+  // ---------- node encoders ----------
+  const SIZE_METRICS = {
+    fixed: { label: 'Uniform', value: () => null },
+    lines: { label: 'Lines of code', value: (n) => n.meta.loc },
+    bytes: { label: 'File size (bytes)', value: (n) => n.meta.bytes },
+    complexity: { label: 'Complexity', value: (n) => n.meta.complexity },
+    churn: { label: 'Change frequency', value: (n) => n.meta.churn },
+    apis: { label: 'API hits', value: (n) => n.meta.apiCount },
+    degree: { label: 'Connections', value: (n) => n.degree },
+  };
+  const COLOR_METRICS = {
+    directory: { label: 'Directory', categorical: true, value: (n) => n.meta.dir, colorFor: (c) => `hsl(${hashHue(c)} 55% 55%)` },
+    kind: { label: 'Symbol kind / type', categorical: true, value: (n) => n.meta.kind || n.meta.type, colorFor: (c) => KIND_COLORS[c] || '#8a95a3' },
+    sensitivity: { label: 'API sensitivity', categorical: true, value: (n) => n.meta.sensitivity || 'none', colorFor: (c) => SENSITIVITY[c] || '#3a4654' },
+    complexity: { label: 'Complexity', value: (n) => n.meta.complexity },
+    churn: { label: 'Change frequency', value: (n) => n.meta.churn },
+    size: { label: 'Lines of code', value: (n) => n.meta.loc },
+    docgap: { label: 'Doc gaps', value: (n) => n.meta.docGap },
+    apis: { label: 'API hits', value: (n) => n.meta.apiCount },
+  };
+
+  function computeDegrees(nodes, edges) {
+    const deg = new Map(nodes.map((n) => [n.id, 0]));
+    for (const e of edges) {
+      if (deg.has(e.source)) deg.set(e.source, deg.get(e.source) + 1);
+      if (deg.has(e.target)) deg.set(e.target, deg.get(e.target) + 1);
+    }
+    for (const n of nodes) n.degree = deg.get(n.id) ?? 0;
+  }
+
+  function applySize(nodes, key) {
+    const metric = SIZE_METRICS[key];
+    const raw = nodes.map((n) => metric.value(n));
+    const max = Math.max(1e-9, ...raw.filter((v) => typeof v === 'number' && isFinite(v)));
+    nodes.forEach((n, i) => {
+      const v = raw[i];
+      n.r = typeof v === 'number' && isFinite(v) ? clamp(5 + Math.sqrt(Math.max(0, v) / max) * 23, 5, 30) : 8;
+    });
+  }
+
+  function applyColor(nodes, key) {
+    const metric = COLOR_METRICS[key];
+    if (metric.categorical) {
+      nodes.forEach((n) => {
+        if (n.fixedColor) { n.color = n.fixedColor; return; }
+        const cat = metric.value(n);
+        n.color = cat == null || cat === '' ? '#3a4654' : metric.colorFor(cat);
+      });
+    } else {
+      const raw = nodes.map((n) => metric.value(n));
+      const max = Math.max(1e-9, ...raw.filter((v) => typeof v === 'number' && isFinite(v)));
+      nodes.forEach((n, i) => {
+        if (n.fixedColor) { n.color = n.fixedColor; return; }
+        const v = raw[i];
+        n.color = typeof v === 'number' && isFinite(v) ? heat(v / max) : '#3a4654';
+      });
+    }
+  }
 
   // ---------- force simulation ----------
   function simulate(nodes, links, width, height) {
     const idx = new Map(nodes.map((n, i) => [n.id, i]));
-    const L = links
-      .filter((l) => idx.has(l.source) && idx.has(l.target))
+    const L = links.filter((l) => idx.has(l.source) && idx.has(l.target))
       .map((l) => ({ a: idx.get(l.source), b: idx.get(l.target) }));
     for (const n of nodes) {
       n.x = width / 2 + (Math.random() - 0.5) * width * 0.6;
       n.y = height / 2 + (Math.random() - 0.5) * height * 0.6;
-      n.vx = 0;
-      n.vy = 0;
+      n.vx = 0; n.vy = 0;
     }
     const k = Math.sqrt((width * height) / Math.max(1, nodes.length)) * 0.7;
-
     function tick(alpha) {
       for (let i = 0; i < nodes.length; i++) {
         for (let j = i + 1; j < nodes.length; j++) {
-          const a = nodes[i];
-          const b = nodes[j];
-          let dx = a.x - b.x;
-          let dy = a.y - b.y;
-          let d2 = dx * dx + dy * dy;
-          if (d2 < 1) {
-            dx = Math.random() - 0.5;
-            dy = Math.random() - 0.5;
-            d2 = 1;
-          }
+          const a = nodes[i], b = nodes[j];
+          let dx = a.x - b.x, dy = a.y - b.y, d2 = dx * dx + dy * dy;
+          if (d2 < 1) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; d2 = 1; }
           const d = Math.sqrt(d2);
           const force = ((k * k) / d2) * alpha * 14;
-          const fx = (dx / d) * force;
-          const fy = (dy / d) * force;
-          a.vx += fx; a.vy += fy;
-          b.vx -= fx; b.vy -= fy;
+          const fx = (dx / d) * force, fy = (dy / d) * force;
+          a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
         }
       }
       for (const { a, b } of L) {
-        const na = nodes[a];
-        const nb = nodes[b];
-        const dx = nb.x - na.x;
-        const dy = nb.y - na.y;
+        const na = nodes[a], nb = nodes[b];
+        const dx = nb.x - na.x, dy = nb.y - na.y;
         const d = Math.sqrt(dx * dx + dy * dy) || 1;
         const force = ((d - k * 1.1) / d) * alpha * 0.35;
-        na.vx += dx * force; na.vy += dy * force;
-        nb.vx -= dx * force; nb.vy -= dy * force;
+        na.vx += dx * force; na.vy += dy * force; nb.vx -= dx * force; nb.vy -= dy * force;
       }
       for (const n of nodes) {
         n.vx += (width / 2 - n.x) * alpha * 0.012;
@@ -130,16 +289,8 @@
     return { tick };
   }
 
-  // ---------- generic graph view ----------
-  function renderGraph(container, spec) {
-    container.textContent = '';
-    // Real projects have empty layers (a pure-JS project has no type graph;
-    // a project touching no privileged APIs has an empty API map). Show that
-    // explicitly rather than rendering a blank canvas that looks broken.
-    if (spec.nodes.length === 0) {
-      container.append(el('div', { class: 'view-empty', text: spec.emptyMessage || 'No data for this view.' }));
-      return { selectNode() {}, applySearch() {} };
-    }
+  // ---------- force-graph renderer ----------
+  function renderForceGraph(container, built, opts) {
     const width = container.clientWidth || 900;
     const height = container.clientHeight || 600;
     const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}` });
@@ -157,87 +308,71 @@
     container.append(el('div', { class: 'hint', text: 'drag background to pan · wheel to zoom · drag nodes · click for details' }));
 
     const view = { x: 0, y: 0, scale: 1 };
-    const applyView = () =>
-      world.setAttribute('transform', `translate(${view.x},${view.y}) scale(${view.scale})`);
+    const applyView = () => world.setAttribute('transform', `translate(${view.x},${view.y}) scale(${view.scale})`);
 
-    const nodes = spec.nodes;
-    const links = spec.links;
+    const nodes = built.nodes;
+    const links = built.edges;
     const nodeById = new Map(nodes.map((n) => [n.id, n]));
     const sim = simulate(nodes, links, width, height);
+    const showLinkLabels = opts.linkLabel !== 'none' && links.length <= 90;
 
-    const linkEls = links
-      .filter((l) => nodeById.has(l.source) && nodeById.has(l.target))
-      .map((l) => {
-        const line = svgEl('line', {
-          class: 'link',
-          stroke: l.color || '#5c6877',
-          'stroke-width': l.width || 1.2,
-          'marker-end': l.arrow === false ? '' : 'url(#arrow)',
-        });
-        if (l.dash) line.setAttribute('stroke-dasharray', l.dash);
-        world.append(line);
-        return { line, l };
+    const linkEls = links.filter((l) => nodeById.has(l.source) && nodeById.has(l.target)).map((l) => {
+      const line = svgEl('line', {
+        class: 'link', stroke: l.color || '#5c6877', 'stroke-width': l.width || 1.2,
+        'marker-end': l.arrow === false ? '' : 'url(#arrow)',
       });
+      if (l.dash) line.setAttribute('stroke-dasharray', l.dash);
+      world.append(line);
+      let label = null;
+      if (showLinkLabels) {
+        label = svgEl('text', { class: 'link-label', 'text-anchor': 'middle' });
+        label.textContent = opts.linkText(l);
+        world.append(label);
+      }
+      return { line, label, l };
+    });
 
     const nodeEls = nodes.map((n) => {
       const circle = svgEl('circle', {
-        class: 'node',
-        r: n.r,
-        fill: n.color,
-        stroke: n.stroke || '#0f1419',
-        'stroke-width': n.strokeWidth || 1,
+        class: 'node', r: n.r, fill: n.color,
+        stroke: n.stroke || '#0f1419', 'stroke-width': n.stroke ? 2.5 : 1,
       });
       circle.append(svgEl('title'));
-      circle.querySelector('title').textContent = n.title || n.label;
+      circle.querySelector('title').textContent = opts.tooltip(n);
       const label = svgEl('text', { class: 'node-label', 'text-anchor': 'middle' });
       label.textContent = n.label;
       world.append(circle);
-      if (nodes.length <= 140) world.append(label);
-      circle.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        selectNode(n.id);
-        if (spec.onSelect) spec.onSelect(n);
-      });
+      if (nodes.length <= 160) world.append(label);
+      circle.addEventListener('click', (ev) => { ev.stopPropagation(); selectNode(n.id); opts.onSelect(n); });
       return { circle, label, n };
     });
 
     function position() {
-      for (const { line, l } of linkEls) {
-        const a = nodeById.get(l.source);
-        const b = nodeById.get(l.target);
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
+      for (const { line, label, l } of linkEls) {
+        const a = nodeById.get(l.source), b = nodeById.get(l.target);
+        const dx = b.x - a.x, dy = b.y - a.y;
         const d = Math.sqrt(dx * dx + dy * dy) || 1;
-        // stop the line at the target's radius so arrowheads stay visible
         line.setAttribute('x1', a.x + (dx / d) * a.r);
         line.setAttribute('y1', a.y + (dy / d) * a.r);
         line.setAttribute('x2', b.x - (dx / d) * (b.r + 2));
         line.setAttribute('y2', b.y - (dy / d) * (b.r + 2));
+        if (label) { label.setAttribute('x', (a.x + b.x) / 2); label.setAttribute('y', (a.y + b.y) / 2 - 2); }
       }
       for (const { circle, label, n } of nodeEls) {
-        circle.setAttribute('cx', n.x);
-        circle.setAttribute('cy', n.y);
-        label.setAttribute('x', n.x);
-        label.setAttribute('y', n.y - n.r - 4);
+        circle.setAttribute('cx', n.x); circle.setAttribute('cy', n.y);
+        label.setAttribute('x', n.x); label.setAttribute('y', n.y - n.r - 4);
       }
     }
 
     let alpha = 1;
     function loop() {
       if (alpha < 0.004) return;
-      alpha *= 0.97;
-      sim.tick(alpha);
-      position();
+      alpha *= 0.97; sim.tick(alpha); position();
       requestAnimationFrame(loop);
     }
     requestAnimationFrame(loop);
-    const reheat = (a) => {
-      const wasCold = alpha < 0.004;
-      alpha = Math.max(alpha, a);
-      if (wasCold) requestAnimationFrame(loop);
-    };
+    const reheat = (a) => { const cold = alpha < 0.004; alpha = Math.max(alpha, a); if (cold) requestAnimationFrame(loop); };
 
-    // pan / zoom / drag
     const toWorld = (ev) => {
       const rect = svg.getBoundingClientRect();
       const sx = ((ev.clientX - rect.left) / rect.width) * width;
@@ -251,39 +386,23 @@
       const next = clamp(view.scale * factor, 0.15, 8);
       view.x = sx - ((sx - view.x) / view.scale) * next;
       view.y = sy - ((sy - view.y) / view.scale) * next;
-      view.scale = next;
-      applyView();
+      view.scale = next; applyView();
     }, { passive: false });
 
     let drag = null;
     svg.addEventListener('mousedown', (ev) => {
       const hit = nodeEls.find(({ circle }) => circle === ev.target);
-      if (hit) {
-        drag = { node: hit.n };
-        hit.n.fixed = true;
-      } else {
-        drag = { panX: ev.clientX - view.x, panY: ev.clientY - view.y };
-        svg.classList.add('panning');
-      }
+      if (hit) { drag = { node: hit.n }; hit.n.fixed = true; }
+      else { drag = { panX: ev.clientX - view.x, panY: ev.clientY - view.y }; svg.classList.add('panning'); }
     });
     window.addEventListener('mousemove', (ev) => {
       if (!drag) return;
-      if (drag.node) {
-        const p = toWorld(ev);
-        drag.node.x = p.x;
-        drag.node.y = p.y;
-        reheat(0.12);
-        position();
-      } else {
-        view.x = ev.clientX - drag.panX;
-        view.y = ev.clientY - drag.panY;
-        applyView();
-      }
+      if (drag.node) { const p = toWorld(ev); drag.node.x = p.x; drag.node.y = p.y; reheat(0.12); position(); }
+      else { view.x = ev.clientX - drag.panX; view.y = ev.clientY - drag.panY; applyView(); }
     });
     window.addEventListener('mouseup', () => {
       if (drag && drag.node) drag.node.fixed = false;
-      svg.classList.remove('panning');
-      drag = null;
+      svg.classList.remove('panning'); drag = null;
     });
 
     function selectNode(id) {
@@ -291,7 +410,6 @@
       const hit = nodeEls.find(({ n }) => n.id === id);
       if (hit) hit.circle.classList.add('selected');
     }
-
     function applySearch(query) {
       const q = query.trim().toLowerCase();
       for (const { circle, label, n } of nodeEls) {
@@ -300,36 +418,35 @@
         label.classList.toggle('dim', !match);
       }
       for (const { line, l } of linkEls) {
-        const am = !q || nodeById.get(l.source).id.toLowerCase().includes(q) ||
-          nodeById.get(l.target).id.toLowerCase().includes(q);
+        const am = !q || nodeById.get(l.source).id.toLowerCase().includes(q) || nodeById.get(l.target).id.toLowerCase().includes(q);
         line.classList.toggle('dim', q && !am);
       }
     }
-
     return { selectNode, applySearch };
   }
 
+  const LAYOUTS = {
+    force: { label: 'Force-directed', render: renderForceGraph },
+  };
+
   // ---------- detail panel ----------
   const aside = el('aside');
-
-  function link(text, onclick) {
-    return el('a', { text, onclick });
-  }
-
+  const link = (text, onclick) => el('a', { text, onclick });
   function panelEmpty() {
     aside.textContent = '';
     aside.append(el('h2', { text: 'Details' }));
-    aside.append(el('p', {
-      class: 'empty',
-      text: 'Click a node to inspect it. Use the tabs to switch analysis layers and the overlay to recolor the map.',
-    }));
+    aside.append(el('p', { class: 'empty', text: 'Click a node to inspect it. Use the controls above to change what the graph shows, how it is laid out, and how nodes and links are encoded.' }));
   }
-
   function table(headers, rows) {
     const t = el('table');
     t.append(el('tr', {}, headers.map((h) => el('th', { text: h }))));
     for (const row of rows) t.append(el('tr', {}, row.map((c) => el('td', {}, [c]))));
     return t;
+  }
+  function csv(items, render) {
+    return items.length
+      ? el('p', {}, items.flatMap((x, i) => (i ? [', ', render(x)] : [render(x)])))
+      : el('p', { class: 'empty', text: 'none' });
   }
 
   function showFile(path) {
@@ -338,82 +455,44 @@
     aside.textContent = '';
     aside.append(el('div', { class: 'kind', text: 'module' }));
     aside.append(el('h2', { text: path }));
-
     const facts = [
       `${file.loc} lines`, `${file.bytes} bytes`,
       file.churn != null ? `${file.churn} commits` : 'churn n/a',
       file.docCoverage != null ? `${Math.round(file.docCoverage * 100)}% documented` : 'no exports',
     ];
     aside.append(el('p', {}, facts.map((f) => el('span', { class: 'badge', text: f, style: 'margin-right:6px' }))));
-    if (cycleMembers.has(path)) {
-      aside.append(el('p', {}, [el('span', { class: 'badge hot', text: 'in dependency cycle' })]));
-    }
+    if (cycleMembers.has(path)) aside.append(el('p', {}, [el('span', { class: 'badge hot', text: 'in dependency cycle' })]));
 
     const imports = MODEL.moduleGraph.edges.filter((e) => e.from === path).map((e) => e.to);
     const importedBy = MODEL.moduleGraph.edges.filter((e) => e.to === path).map((e) => e.from);
     aside.append(el('h3', { text: `imports (${imports.length})` }));
-    aside.append(imports.length
-      ? el('p', {}, imports.flatMap((p, i) => (i ? [', ', link(p, () => showFile(p))] : [link(p, () => showFile(p))])))
-      : el('p', { class: 'empty', text: 'none' }));
+    aside.append(csv(imports, (p) => link(p, () => showFile(p))));
     aside.append(el('h3', { text: `imported by (${importedBy.length})` }));
-    aside.append(importedBy.length
-      ? el('p', {}, importedBy.flatMap((p, i) => (i ? [', ', link(p, () => showFile(p))] : [link(p, () => showFile(p))])))
-      : el('p', { class: 'empty', text: 'none' }));
+    aside.append(csv(importedBy, (p) => link(p, () => showFile(p))));
 
-    const syms = (symbolsByFile.get(path) || []);
+    const syms = symbolsByFile.get(path) || [];
     aside.append(el('h3', { text: `symbols (${syms.length})` }));
     if (syms.length) {
-      aside.append(table(
-        ['name', 'kind', 'line', 'cx', 'doc'],
-        syms.map((s) => [
-          link(s.name, () => showSymbol(s.id)),
-          el('span', { text: s.kind }),
-          el('span', { text: String(s.line) }),
-          el('span', { text: s.complexity == null ? '—' : String(s.complexity) }),
-          el('span', { text: s.documented ? '✓' : s.exported ? '✗' : '—' }),
-        ]),
-      ));
-    } else {
-      aside.append(el('p', { class: 'empty', text: 'none' }));
-    }
-
-    const apis = apiByFile.get(path) || [];
-    aside.append(el('h3', { text: `api usage (${apis.length})` }));
-    if (apis.length) {
-      aside.append(table(
-        ['api', 'category', 'line'],
-        apis.map((u) => [
-          el('span', { text: u.api }),
-          el('span', { class: 'badge', text: u.category, style: `color:${API_COLORS[u.category]}` }),
-          el('span', { text: String(u.line) }),
-        ]),
-      ));
-    } else {
-      aside.append(el('p', { class: 'empty', text: 'none' }));
-    }
+      aside.append(table(['name', 'kind', 'line', 'cx', 'used'], syms.map((s) => [
+        link(s.name, () => showSymbol(s.id)),
+        el('span', { text: s.kind }),
+        el('span', { text: String(s.line) }),
+        el('span', { text: s.complexity == null ? '—' : String(s.complexity) }),
+        el('span', { text: String((refsByTarget.get(s.id) || []).length) }),
+      ])));
+    } else aside.append(el('p', { class: 'empty', text: 'none' }));
   }
 
   function showSymbol(id) {
     const s = symbolById.get(id);
-    if (!s) {
-      // module pseudo-node from the call graph
-      const path = id.split('#')[0];
-      if (fileByPath.has(path)) showFile(path);
-      return;
-    }
+    if (!s) { const path = id.split('#')[0]; if (fileByPath.has(path)) showFile(path); return; }
     aside.textContent = '';
     aside.append(el('div', { class: 'kind', text: s.kind + (s.exported ? ' · exported' : '') }));
     aside.append(el('h2', { text: s.name }));
     aside.append(el('p', {}, [link(s.file, () => showFile(s.file)), el('span', { text: ` :${s.line}–${s.endLine}` })]));
 
     const badges = [];
-    if (s.complexity != null) {
-      badges.push(el('span', {
-        class: 'badge' + (s.complexity >= 10 ? ' hot' : ''),
-        text: `complexity ${s.complexity}`,
-        style: 'margin-right:6px',
-      }));
-    }
+    if (s.complexity != null) badges.push(el('span', { class: 'badge' + (s.complexity >= 10 ? ' hot' : ''), text: `complexity ${s.complexity}`, style: 'margin-right:6px' }));
     badges.push(el('span', { class: 'badge', text: s.documented ? 'documented' : 'undocumented', style: 'margin-right:6px' }));
     if (uncalledSet.has(s.id)) badges.push(el('span', { class: 'badge hot', text: 'no incoming calls' }));
     aside.append(el('p', {}, badges));
@@ -421,38 +500,27 @@
     const calls = MODEL.callGraph.edges.filter((e) => e.from === id).map((e) => e.to);
     const calledBy = MODEL.callGraph.edges.filter((e) => e.to === id).map((e) => e.from);
     aside.append(el('h3', { text: `calls (${calls.length})` }));
-    aside.append(calls.length
-      ? el('p', {}, calls.flatMap((c, i) => (i ? [', ', link(c, () => showSymbol(c))] : [link(c, () => showSymbol(c))])))
-      : el('p', { class: 'empty', text: 'none detected' }));
+    aside.append(csv(calls, (c) => link(c, () => showSymbol(c))));
     aside.append(el('h3', { text: `called by (${calledBy.length})` }));
-    aside.append(calledBy.length
-      ? el('p', {}, calledBy.flatMap((c, i) => (i ? [', ', link(c, () => showSymbol(c))] : [link(c, () => showSymbol(c))])))
-      : el('p', { class: 'empty', text: 'none detected' }));
+    aside.append(csv(calledBy, (c) => link(c, () => showSymbol(c))));
 
     const typeEdges = MODEL.typeGraph.filter((e) => e.from === id || e.to === id);
     if (typeEdges.length) {
       aside.append(el('h3', { text: 'type relationships' }));
-      aside.append(table(
-        ['from', 'relation', 'to'],
-        typeEdges.map((e) => [
-          link(symbolById.get(e.from)?.name || e.from, () => showSymbol(e.from)),
-          el('span', { text: e.relation }),
-          link(symbolById.get(e.to)?.name || e.to, () => showSymbol(e.to)),
-        ]),
-      ));
+      aside.append(table(['from', 'relation', 'to'], typeEdges.map((e) => [
+        link(symbolById.get(e.from)?.name || e.from, () => showSymbol(e.from)),
+        el('span', { text: e.relation }),
+        link(symbolById.get(e.to)?.name || e.to, () => showSymbol(e.to)),
+      ])));
     }
-
     const apis = MODEL.apiUsage.filter((u) => u.inSymbol === id);
     if (apis.length) {
       aside.append(el('h3', { text: 'api usage' }));
-      aside.append(table(
-        ['api', 'category', 'line'],
-        apis.map((u) => [
-          el('span', { text: u.api }),
-          el('span', { class: 'badge', text: u.category, style: `color:${API_COLORS[u.category]}` }),
-          el('span', { text: String(u.line) }),
-        ]),
-      ));
+      aside.append(table(['api', 'category', 'line'], apis.map((u) => [
+        el('span', { text: u.api }),
+        el('span', { class: 'badge', text: u.category, style: `color:${API_COLORS[u.category]}` }),
+        el('span', { text: String(u.line) }),
+      ])));
     }
   }
 
@@ -462,275 +530,136 @@
     aside.append(el('h2', { text: category }));
     const hits = MODEL.apiUsage.filter((u) => u.category === category);
     aside.append(el('h3', { text: `call sites (${hits.length})` }));
-    aside.append(table(
-      ['api', 'where'],
-      hits.map((u) => [
-        el('span', { text: u.api }),
-        el('p', {}, [
-          u.inSymbol
-            ? link(u.inSymbol, () => showSymbol(u.inSymbol))
-            : link(u.file, () => showFile(u.file)),
-          el('span', { text: ` :${u.line}` }),
-        ]),
-      ]),
-    ));
+    aside.append(table(['api', 'where'], hits.map((u) => [
+      el('span', { text: u.api }),
+      el('p', {}, [u.inSymbol ? link(u.inSymbol, () => showSymbol(u.inSymbol)) : link(u.file, () => showFile(u.file)), el('span', { text: ` :${u.line}` })]),
+    ])));
   }
 
-  // ---------- overlays (Modules view) ----------
-  const fileComplexity = new Map(MODEL.files.map((f) => {
-    const syms = symbolsByFile.get(f.path) || [];
-    return [f.path, Math.max(0, ...syms.map((s) => s.complexity ?? 0))];
-  }));
-  const OVERLAYS = {
-    structure: { label: 'Structure (by directory)' },
-    complexity: { label: 'Max complexity', value: (f) => fileComplexity.get(f.path) },
-    churn: { label: 'Change frequency', value: (f) => f.churn ?? 0 },
-    size: { label: 'File size (loc)', value: (f) => f.loc },
-    docs: { label: 'Doc gaps', value: (f) => (f.docCoverage == null ? 0 : 1 - f.docCoverage) },
-    api: { label: 'API sensitivity', value: (f) => (apiByFile.get(f.path) || []).length },
+  // ---------- chrome + control state ----------
+  const graphHost = el('div', { id: 'graph' });
+  const legend = el('div', { class: 'legend' });
+  let active = null;
+
+  const state = {
+    structure: 'modules', layout: 'force',
+    size: 'lines', color: 'directory', linkLabel: 'none', linkWidth: 'fixed', search: '',
   };
 
-  function moduleNodeColor(file, overlayKey) {
-    if (overlayKey === 'structure') return `hsl(${dirHue(file.path)} 55% 55%)`;
-    const overlay = OVERLAYS[overlayKey];
-    const values = MODEL.files.map(overlay.value);
-    const max = Math.max(1e-9, ...values);
-    return heat(overlay.value(file) / max);
+  function linkText(l) {
+    if (state.linkLabel === 'weight') return String(l.weight ?? 1);
+    if (state.linkLabel === 'relation') return l.relation || l.label || '';
+    if (state.linkLabel === 'name') return l.label || '';
+    return '';
+  }
+  function tooltip(n) {
+    const m = n.meta;
+    const bits = [n.id];
+    if (m.loc != null) bits.push(`${m.loc} loc`);
+    if (m.complexity != null) bits.push(`cx ${m.complexity}`);
+    if (m.churn != null) bits.push(`churn ${m.churn}`);
+    if (m.apiCount) bits.push(`${m.apiCount} api`);
+    bits.push(`${n.degree} links`);
+    return bits.join(' · ');
   }
 
-  // ---------- views ----------
-  const graphHost = el('div', { id: 'graph' });
-  let active;
+  function applyLinkWidth(edges) {
+    if (state.linkWidth === 'fixed') { edges.forEach((e) => (e.width = e.width || 1.2)); return; }
+    const max = Math.max(1, ...edges.map((e) => e.weight || 1));
+    edges.forEach((e) => (e.width = clamp(1 + ((e.weight || 1) / max) * 5, 1, 6)));
+  }
 
-  function viewModules(overlayKey) {
-    const nodes = MODEL.moduleGraph.nodes.map((path) => {
-      const file = fileByPath.get(path) || { loc: 1, path };
-      return {
-        id: path,
-        label: path.split('/').pop(),
-        r: clamp(4 + Math.sqrt(file.loc) * 0.9, 5, 26),
-        color: moduleNodeColor(file, overlayKey),
-        stroke: cycleMembers.has(path) ? '#ff5d5d' : '#0f1419',
-        strokeWidth: cycleMembers.has(path) ? 2.5 : 1,
-        title: `${path}\n${file.loc} loc · churn ${file.churn ?? 'n/a'} · max cx ${fileComplexity.get(path) ?? 0}`,
-      };
-    });
-    const cyclePairs = new Set();
-    for (const cycle of MODEL.moduleGraph.cycles) {
-      for (const a of cycle) for (const b of cycle) cyclePairs.add(`${a}|${b}`);
+  function updateLegend(structure, built) {
+    legend.textContent = '';
+    const metric = COLOR_METRICS[state.color];
+    const chip = (color, text) => el('span', { class: 'chip' }, [el('span', { class: 'dot', style: `background:${color}` }), document.createTextNode(text)]);
+    if (metric.categorical) {
+      const cats = [...new Set(built.nodes.map((n) => metric.value(n)).filter((c) => c != null && c !== ''))].slice(0, 8);
+      for (const c of cats) legend.append(chip(metric.colorFor(c), String(c).split('/').pop() || c));
+    } else {
+      legend.append(el('span', { class: 'chip' }, [el('span', { class: 'ramp' }), document.createTextNode(`${metric.label} (low→high)`)]));
     }
-    const links = MODEL.moduleGraph.edges.map((e) => ({
-      source: e.from,
-      target: e.to,
-      color: cyclePairs.has(`${e.from}|${e.to}`) ? '#ff5d5d' : '#5c6877',
-      width: cyclePairs.has(`${e.from}|${e.to}`) ? 2 : 1.2,
-    }));
-    return renderGraph(graphHost, { nodes, links, onSelect: (n) => showFile(n.id) });
+    if (structure === 'modules' && cycleMembers.size) legend.append(chip('#ff5d5d', 'cycle'));
+    if (structure === 'calls' && uncalledSet.size) legend.append(chip('#ff5d5d', 'uncalled'));
+    legend.append(el('span', { class: 'chip', text: `size: ${SIZE_METRICS[state.size].label}` }));
   }
 
-  function viewTypes() {
-    const typeKinds = new Set(['class', 'interface', 'typeAlias', 'enum']);
-    const inEdges = new Set(MODEL.typeGraph.flatMap((e) => [e.from, e.to]));
-    const nodes = MODEL.symbols
-      .filter((s) => typeKinds.has(s.kind))
-      .map((s) => ({
-        id: s.id,
-        label: s.name,
-        r: inEdges.has(s.id) ? 10 : 7,
-        color: KIND_COLORS[s.kind],
-        title: `${s.id}\n${s.kind}${s.documented ? ' · documented' : ''}`,
-      }));
-    const relStyle = {
-      extends: {},
-      implements: { dash: '6 4' },
-      alias: { dash: '2 4' },
-    };
-    const links = MODEL.typeGraph.map((e) => ({
-      source: e.from, target: e.to, ...relStyle[e.relation],
-    }));
-    return renderGraph(graphHost, {
-      nodes,
-      links,
-      onSelect: (n) => showSymbol(n.id),
-      emptyMessage: 'No type relationships found — no classes with extends/implements clauses and no type aliases (typical of plain-JS projects).',
-    });
-  }
-
-  function viewCalls() {
-    const callable = MODEL.symbols.filter((s) => s.complexity != null);
-    const pseudo = new Set();
-    for (const e of MODEL.callGraph.edges) {
-      if (e.from.endsWith('#<module>')) pseudo.add(e.from);
+  function rebuild() {
+    const structure = STRUCTURES[state.structure];
+    const built = structure.build();
+    graphHost.textContent = '';
+    if (built.nodes.length === 0) {
+      graphHost.append(el('div', { class: 'view-empty', text: structure.emptyMessage || 'No data for this view.' }));
+      legend.textContent = '';
+      active = { applySearch() {}, selectNode() {} };
+      return;
     }
-    const nodes = [
-      ...callable.map((s) => ({
-        id: s.id,
-        label: s.name,
-        r: clamp(4 + (s.complexity ?? 1) * 0.9, 5, 22),
-        color: uncalledSet.has(s.id) ? '#ff5d5d' : heat((s.complexity ?? 1) / 15),
-        title: `${s.id}\ncomplexity ${s.complexity}${uncalledSet.has(s.id) ? ' · no incoming calls' : ''}`,
-      })),
-      ...[...pseudo].map((id) => ({
-        id,
-        label: id.split('#')[0].split('/').pop(),
-        r: 6,
-        color: KIND_COLORS.module,
-        title: `${id}\nmodule top-level code`,
-      })),
-    ];
-    const links = MODEL.callGraph.edges.map((e) => ({ source: e.from, target: e.to }));
-    return renderGraph(graphHost, {
-      nodes,
-      links,
-      onSelect: (n) => showSymbol(n.id),
-      emptyMessage: 'No call graph — no function-like symbols were found.',
+    computeDegrees(built.nodes, built.edges);
+    applySize(built.nodes, state.size);
+    applyColor(built.nodes, state.color);
+    applyLinkWidth(built.edges);
+    const layout = LAYOUTS[state.layout];
+    active = layout.render(graphHost, built, {
+      onSelect: structure.onSelect, linkLabel: state.linkLabel, linkText, tooltip,
     });
+    active.applySearch(state.search);
+    updateLegend(structure, built);
   }
 
-  function viewApis() {
-    const categories = [...new Set(MODEL.apiUsage.map((u) => u.category))].sort();
-    const files = [...new Set(MODEL.apiUsage.map((u) => u.file))].sort();
-    const counts = new Map();
-    for (const u of MODEL.apiUsage) {
-      const key = `${u.category}|${u.file}`;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
+  // ---------- controls ----------
+  function control(name, label, options, initial, onChange) {
+    const select = el('select', { 'data-control': name });
+    for (const [value, text] of options) {
+      const opt = el('option', { value, text });
+      if (value === initial) opt.setAttribute('selected', '');
+      select.append(opt);
     }
-    const nodes = [
-      ...categories.map((c) => ({
-        id: `cat:${c}`,
-        label: c,
-        r: 14,
-        color: API_COLORS[c] || '#8a95a3',
-        title: `${c}\n${MODEL.apiUsage.filter((u) => u.category === c).length} call sites`,
-      })),
-      ...files.map((f) => ({
-        id: f,
-        label: f.split('/').pop(),
-        r: 8,
-        color: '#3a4654',
-        title: f,
-      })),
-    ];
-    const links = [...counts.entries()].map(([key, n]) => {
-      const [category, file] = key.split('|');
-      return {
-        source: `cat:${category}`, target: file,
-        color: API_COLORS[category], width: Math.min(1 + n, 6), arrow: false,
-      };
-    });
-    return renderGraph(graphHost, {
-      nodes,
-      links,
-      onSelect: (n) => (n.id.startsWith('cat:') ? showApiCategory(n.id.slice(4)) : showFile(n.id)),
-      emptyMessage: 'No privileged API usage detected — no file system, network, shell, crypto, DOM, storage, or database access found.',
-    });
+    select.addEventListener('change', () => onChange(select.value));
+    return el('label', { class: 'control' }, [el('span', { text: label }), select]);
   }
 
-  // ---------- chrome ----------
-  const projectName = MODEL.meta.projectRoot.split('/').filter(Boolean).pop() || MODEL.meta.projectRoot;
-  const totalLoc = MODEL.files.reduce((sum, f) => sum + f.loc, 0);
-
-  const stats = el('div', { class: 'stats' }, [
-    el('span', {}, [el('b', { text: String(MODEL.meta.fileCount) }), document.createTextNode(' files')]),
-    el('span', {}, [el('b', { text: totalLoc.toLocaleString() }), document.createTextNode(' lines')]),
-    el('span', {}, [el('b', { text: String(MODEL.symbols.length) }), document.createTextNode(' symbols')]),
-    el('span', {}, [el('b', { text: String(MODEL.callGraph.edges.length) }), document.createTextNode(' call edges')]),
-    el('span', { class: MODEL.moduleGraph.cycles.length ? 'warn' : '' }, [
-      el('b', { text: String(MODEL.moduleGraph.cycles.length) }),
-      document.createTextNode(' cycles'),
-    ]),
-    el('span', {}, [el('b', { text: String(MODEL.apiUsage.length) }), document.createTextNode(' API hits')]),
-  ]);
-
-  const overlaySelect = el('select');
-  for (const [key, o] of Object.entries(OVERLAYS)) {
-    overlaySelect.append(el('option', { value: key, text: o.label }));
-  }
-  const overlayLabel = el('label', { text: 'Overlay: ' });
+  const structureCtl = control('structure', 'Structure',
+    Object.entries(STRUCTURES).map(([k, v]) => [k, v.label]), state.structure,
+    (v) => { state.structure = v; rebuild(); });
+  const layoutCtl = control('layout', 'Layout',
+    Object.entries(LAYOUTS).map(([k, v]) => [k, v.label]), state.layout,
+    (v) => { state.layout = v; rebuild(); });
+  const sizeCtl = control('size', 'Size by',
+    Object.entries(SIZE_METRICS).map(([k, v]) => [k, v.label]), state.size,
+    (v) => { state.size = v; rebuild(); });
+  const colorCtl = control('color', 'Color by',
+    Object.entries(COLOR_METRICS).map(([k, v]) => [k, v.label]), state.color,
+    (v) => { state.color = v; rebuild(); });
+  const linkLabelCtl = control('link', 'Link label',
+    [['none', 'None'], ['name', 'Target'], ['relation', 'Relation'], ['weight', 'Weight']], state.linkLabel,
+    (v) => { state.linkLabel = v; rebuild(); });
+  const linkWidthCtl = control('linkwidth', 'Link width',
+    [['fixed', 'Uniform'], ['weight', 'By weight']], state.linkWidth,
+    (v) => { state.linkWidth = v; rebuild(); });
 
   const searchInput = el('input', { type: 'search', placeholder: 'filter nodes…' });
-  searchInput.addEventListener('input', () => active && active.applySearch(searchInput.value));
+  searchInput.addEventListener('input', () => { state.search = searchInput.value; if (active) active.applySearch(state.search); });
 
-  const legend = el('div', { class: 'legend' });
-
-  const VIEWS = {
-    modules: {
-      label: 'Modules',
-      render: () => viewModules(overlaySelect.value),
-      legend: () => overlaySelect.value === 'structure'
-        ? [chipDot('#ff5d5d', 'cycle member (red ring/edges)'), chipText('node size = lines of code')]
-        : [chipRamp('low → high'), chipDot('#ff5d5d', 'cycle member')],
-    },
-    types: {
-      label: 'Types',
-      render: viewTypes,
-      legend: () => [
-        chipDot(KIND_COLORS.class, 'class'), chipDot(KIND_COLORS.interface, 'interface'),
-        chipDot(KIND_COLORS.typeAlias, 'type alias'), chipDot(KIND_COLORS.enum, 'enum'),
-        chipLine('', 'extends'), chipLine('dashed', 'implements'), chipLine('dotted', 'alias'),
-      ],
-    },
-    calls: {
-      label: 'Calls',
-      render: viewCalls,
-      legend: () => [
-        chipRamp('complexity'), chipDot('#ff5d5d', 'no incoming calls'),
-        chipDot(KIND_COLORS.module, 'module top-level'),
-      ],
-    },
-    apis: {
-      label: 'APIs',
-      render: viewApis,
-      legend: () => Object.entries(API_COLORS)
-        .filter(([c]) => MODEL.apiUsage.some((u) => u.category === c))
-        .map(([c, color]) => chipDot(color, c)),
-    },
-  };
-
-  function chipDot(color, text) {
-    return el('span', { class: 'chip' }, [el('span', { class: 'dot', style: `background:${color}` }), document.createTextNode(text)]);
-  }
-  function chipLine(style, text) {
-    return el('span', { class: 'chip' }, [el('span', { class: `line ${style}` }), document.createTextNode(text)]);
-  }
-  function chipRamp(text) {
-    return el('span', { class: 'chip' }, [el('span', { class: 'ramp' }), document.createTextNode(text)]);
-  }
-  function chipText(text) {
-    return el('span', { class: 'chip', text });
-  }
-
-  const nav = el('nav');
-  let activeKey = 'modules';
-
-  function switchView(key) {
-    activeKey = key;
-    for (const button of nav.children) button.classList.toggle('active', button.dataset.key === key);
-    overlayLabel.style.display = key === 'modules' ? '' : 'none';
-    overlaySelect.style.display = key === 'modules' ? '' : 'none';
-    legend.textContent = '';
-    for (const chip of VIEWS[key].legend()) legend.append(chip);
-    active = VIEWS[key].render();
-    active.applySearch(searchInput.value);
-  }
-
-  for (const [key, v] of Object.entries(VIEWS)) {
-    const button = el('button', { text: v.label, 'data-key': key, onclick: () => switchView(key) });
-    nav.append(button);
-  }
-
-  overlaySelect.addEventListener('change', () => switchView('modules'));
+  // ---------- header ----------
+  const projectName = MODEL.meta.projectRoot.split('/').filter(Boolean).pop() || MODEL.meta.projectRoot;
+  const totalLoc = MODEL.files.reduce((sum, f) => sum + f.loc, 0);
+  const stat = (n, label, warn) => el('span', { class: warn ? 'warn' : '' }, [el('b', { text: String(n) }), document.createTextNode(' ' + label)]);
+  const stats = el('div', { class: 'stats' }, [
+    stat(MODEL.meta.fileCount, 'files'),
+    stat(totalLoc.toLocaleString(), 'lines'),
+    stat(MODEL.symbols.length, 'symbols'),
+    stat(MODEL.callGraph.edges.length, 'calls'),
+    stat(MODEL.moduleGraph.cycles.length, 'cycles', MODEL.moduleGraph.cycles.length > 0),
+    stat((MODEL.references || []).length, 'refs'),
+  ]);
 
   document.body.append(
-    el('header', {}, [
-      el('h1', {}, [document.createTextNode('Code Analysis — '), el('span', { text: projectName })]),
-      stats,
-      nav,
-    ]),
-    el('div', { class: 'toolbar' }, [overlayLabel, overlaySelect, searchInput, legend]),
+    el('header', {}, [el('h1', {}, [document.createTextNode('Code Analysis — '), el('span', { text: projectName })]), stats]),
+    el('div', { class: 'toolbar' }, [structureCtl, layoutCtl, sizeCtl, colorCtl, linkLabelCtl, linkWidthCtl, searchInput]),
+    el('div', { class: 'legendbar' }, [legend]),
     el('main', {}, [graphHost, aside]),
   );
 
   panelEmpty();
-  switchView('modules');
+  rebuild();
 })();

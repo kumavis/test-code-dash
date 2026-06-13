@@ -56,14 +56,18 @@ nav button.active { background: var(--accent); border-color: var(--accent); colo
 
 .toolbar {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   align-items: center;
   padding: 8px 16px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
 }
 
-.toolbar label { color: var(--muted); }
+.toolbar label.control { display: inline-flex; flex-direction: column; gap: 2px; }
+.toolbar label.control > span {
+  color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+}
 
 .toolbar select, .toolbar input {
   background: var(--panel-2);
@@ -74,9 +78,15 @@ nav button.active { background: var(--accent); border-color: var(--accent); colo
   font: inherit;
 }
 
-.toolbar input { width: 220px; }
+.toolbar input { width: 200px; align-self: flex-end; }
 
-.legend { display: flex; gap: 12px; margin-left: auto; color: var(--muted); font-size: 12px; flex-wrap: wrap; }
+.legendbar {
+  display: flex; align-items: center; min-height: 30px;
+  padding: 4px 16px; background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.legend { display: flex; gap: 12px; color: var(--muted); font-size: 12px; flex-wrap: wrap; }
 .legend .chip { display: inline-flex; align-items: center; gap: 5px; }
 .legend .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .legend .line { width: 18px; height: 0; border-top: 2px solid var(--muted); display: inline-block; }
@@ -135,6 +145,15 @@ text.node-label {
   paint-order: stroke;
   stroke: var(--bg);
   stroke-width: 3px;
+  pointer-events: none;
+}
+
+text.link-label {
+  fill: var(--muted);
+  font-size: 8.5px;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 2.5px;
   pointer-events: none;
 }
 

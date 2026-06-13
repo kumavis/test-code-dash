@@ -26,6 +26,8 @@ export interface FileInfo {
 export interface ModuleEdge {
   from: string;
   to: string;
+  /** Number of import statements producing this edge (link-strength metric). */
+  weight: number;
 }
 
 export interface ModuleGraph {

@@ -19,7 +19,7 @@ try {
   chromium = null;
 }
 
-test('dashboard renders and all views switch without errors', { skip: !chromium }, async () => {
+test('dashboard renders and every structure switches without errors', { skip: !chromium }, async () => {
   const out = mkdtempSync(join(tmpdir(), 'cad-render-'));
   execFileSync('node', [join(root, 'dist', 'cli.js'), join(root, 'test', 'fixture'), '-o', out]);
 
@@ -34,7 +34,7 @@ test('dashboard renders and all views switch without errors', { skip: !chromium 
   await page.goto('file://' + join(out, 'index.html'));
   await page.waitForTimeout(400);
 
-  // Landing view: one circle per fixture module.
+  // Landing structure: one circle per fixture module.
   assert.equal(await page.locator('circle.node').count(), 8);
   assert.ok((await page.locator('header h1').textContent()).includes('fixture'));
 
@@ -42,17 +42,20 @@ test('dashboard renders and all views switch without errors', { skip: !chromium 
   await page.locator('circle.node').first().click();
   assert.ok((await page.locator('aside h2').textContent()).includes('.ts'));
 
-  // Every tab renders nodes and stays error-free.
-  for (const tab of ['Types', 'Calls', 'APIs', 'Modules']) {
-    await page.getByRole('button', { name: tab, exact: true }).click();
+  // Each structure renders nodes and stays error-free.
+  for (const structure of ['types', 'calls', 'apis', 'modules']) {
+    await page.locator('select[data-control="structure"]').selectOption(structure);
     await page.waitForTimeout(150);
-    assert.ok((await page.locator('circle.node').count()) > 0, `${tab} view has nodes`);
+    assert.ok((await page.locator('circle.node').count()) > 0, `${structure} structure has nodes`);
   }
 
-  // Overlay recolor on the Modules view.
-  await page.locator('.toolbar select').selectOption('complexity');
+  // Node encoding axes recolor/resize without breaking node count.
+  await page.locator('select[data-control="color"]').selectOption('complexity');
+  await page.locator('select[data-control="size"]').selectOption('churn');
+  await page.locator('select[data-control="link"]').selectOption('weight');
+  await page.locator('select[data-control="linkwidth"]').selectOption('weight');
   await page.waitForTimeout(150);
-  assert.ok((await page.locator('circle.node').count()) === 8);
+  assert.equal(await page.locator('circle.node').count(), 8);
 
   await browser.close();
   assert.deepEqual(errors, []);
@@ -72,7 +75,7 @@ test('empty layers show an explanatory message, not a blank canvas', { skip: !ch
   const errors = [];
   page.on('pageerror', (err) => errors.push(String(err)));
   await page.goto('file://' + join(out, 'index.html'));
-  await page.getByRole('button', { name: 'Types', exact: true }).click();
+  await page.locator('select[data-control="structure"]').selectOption('types');
   await page.waitForTimeout(150);
   assert.equal(await page.locator('circle.node').count(), 0);
   assert.ok(await page.locator('.view-empty').isVisible(), 'empty-state message shown');

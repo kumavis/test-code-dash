@@ -32,13 +32,15 @@ assert.equal(
   0,
 );
 
-/* ASPIRATIONAL — uncomment each section as its phase lands.
-
 // ---- Phase 2: composable controls present in the dashboard ----
-for (const control of ['data-control="structure"', 'data-control="layout"',
-  'data-control="size"', 'data-control="color"', 'data-control="link"']) {
-  assert.ok(html.includes(control), `missing control ${control}`);
+// The orthogonal axes are wired in the inlined renderer (attributes are set
+// at runtime; the browser test asserts they actually drive the view).
+for (const ctl of ["control('structure'", "control('layout'", "control('size'",
+  "control('color'", "control('link'", "'data-control'"]) {
+  assert.ok(html.includes(ctl), `missing control wiring ${ctl}`);
 }
+
+/* ASPIRATIONAL — uncomment each section as its phase lands.
 
 // ---- Phase 3: filesystem + symbol structures, tree layout ----
 assert.ok(html.includes('filesystem'));

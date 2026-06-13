@@ -76,6 +76,9 @@ export function buildModuleGraph(project: LoadedProject): ModuleGraph {
 
   const nodes = [...fileByAbsPath.values()].sort();
   const adjacency = new Map<string, Set<string>>();
+  // weight = number of import statements producing each from->to edge, so the
+  // dashboard's link-strength control has real data on the module graph.
+  const weights = new Map<string, number>();
   for (const sf of project.sourceFiles) {
     const from = relPath(project, sf);
     for (const spec of importSpecifiers(sf)) {
@@ -86,11 +89,13 @@ export function buildModuleGraph(project: LoadedProject): ModuleGraph {
       if (to === undefined || to === from) continue;
       if (!adjacency.has(from)) adjacency.set(from, new Set());
       adjacency.get(from)!.add(to);
+      const key = `${from}|${to}`;
+      weights.set(key, (weights.get(key) ?? 0) + 1);
     }
   }
 
   const edges = [...adjacency.entries()]
-    .flatMap(([from, tos]) => [...tos].map((to) => ({ from, to })))
+    .flatMap(([from, tos]) => [...tos].map((to) => ({ from, to, weight: weights.get(`${from}|${to}`) ?? 1 })))
     .sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to));
 
   return { nodes, edges, cycles: findCycles(nodes, adjacency) };
