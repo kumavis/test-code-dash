@@ -74,6 +74,44 @@ test('dashboard renders and every structure switches without errors', { skip: !c
   assert.deepEqual(errors, []);
 });
 
+test('usage focus highlights a symbol and its use sites', { skip: !chromium }, async () => {
+  const out = mkdtempSync(join(tmpdir(), 'cad-focus-'));
+  execFileSync('node', [join(root, 'dist', 'cli.js'), join(root, 'test', 'fixture'), '-o', out]);
+
+  const browser = await chromium.launch();
+  const page = await browser.newPage();
+  const errors = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.goto('file://' + join(out, 'index.html'));
+  // Symbols + tree gives stable (static) node positions to click.
+  await page.locator('select[data-control="structure"]').selectOption('symbols');
+  await page.locator('select[data-control="layout"]').selectOption('tree');
+  await page.waitForTimeout(250);
+
+  // Find a referenced symbol, open it, focus its usages.
+  const count = await page.locator('circle.node').count();
+  let focused = false;
+  for (let i = 0; i < Math.min(count, 14) && !focused; i++) {
+    await page.locator('circle.node').nth(i).click({ force: true });
+    if (await page.locator('a.focus-link').count()) {
+      await page.locator('a.focus-link').first().click();
+      await page.waitForTimeout(200);
+      focused = (await page.locator('select[data-control="structure"]').inputValue()) === 'references';
+    }
+  }
+  assert.ok(focused, 'focusing a symbol switches to the references structure');
+  assert.ok((await page.locator('circle.faded').count()) > 0, 'unrelated nodes are faded');
+  assert.ok((await page.locator('.focuschip').textContent()).includes('focused'));
+
+  // Clearing focus un-fades everything.
+  await page.locator('.focuschip .clear').click();
+  await page.waitForTimeout(150);
+  assert.equal(await page.locator('circle.faded').count(), 0);
+
+  await browser.close();
+  assert.deepEqual(errors, []);
+});
+
 test('empty layers show an explanatory message, not a blank canvas', { skip: !chromium }, async () => {
   const { writeFileSync, mkdirSync } = await import('node:fs');
   // A plain-JS project with no classes/type-aliases -> empty Types view.

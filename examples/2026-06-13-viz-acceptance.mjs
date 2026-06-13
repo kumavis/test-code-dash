@@ -48,11 +48,7 @@ assert.ok(html.includes('tree'));
 // ---- Phase 4: treemap representation ----
 assert.ok(html.includes('treemap'));
 
-/* ASPIRATIONAL — uncomment each section as its phase lands.
-
 // ---- Phase 5: usage exploration ----
 assert.ok(html.includes('references'));
-
-*/
 
 console.log('viz acceptance: all active sections passed');

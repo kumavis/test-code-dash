@@ -167,8 +167,15 @@ text.tm-group {
   text-transform: uppercase; letter-spacing: 0.04em;
 }
 
+.focuschip { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.focuschip .clear { color: var(--accent); cursor: pointer; font-size: 12px; }
+.focuschip .clear:hover { text-decoration: underline; }
+a.focus-link { color: var(--accent); cursor: pointer; font-size: 11px; font-weight: 400; text-transform: none; letter-spacing: 0; }
+
 circle.node { cursor: pointer; }
 circle.node.dim { opacity: 0.18; }
+.faded { opacity: 0.08 !important; transition: opacity 0.15s; }
+circle.node.faded { opacity: 0.08 !important; }
 circle.node.selected { stroke: #fff !important; stroke-width: 2.5px !important; }
 text.node-label.dim { opacity: 0.15; }
 line.link { stroke-opacity: 0.45; }

@@ -232,6 +232,32 @@
         return { nodes, edges, hierarchical: true };
       },
     },
+    references: {
+      label: 'References (usage)', onSelect: (n) => (symbolById.has(n.id) ? showSymbol(n.id) : showFile(n.id)),
+      emptyMessage: 'No references recorded.',
+      build() {
+        // referencer (enclosing symbol, or file for module-level uses) -> referenced symbol.
+        const nodes = new Map();
+        const weights = new Map();
+        const addNode = (id) => {
+          if (nodes.has(id)) return true;
+          if (symbolById.has(id)) { nodes.set(id, { id, label: symbolById.get(id).name, meta: symbolMeta(id) }); return true; }
+          if (fileByPath.has(id)) { nodes.set(id, { id, label: baseOf(id), meta: fileMeta(id) }); return true; }
+          return false;
+        };
+        for (const r of MODEL.references || []) {
+          const from = r.inSymbol || r.file;
+          if (from === r.to || !addNode(from) || !addNode(r.to)) continue;
+          const key = `${from}|${r.to}`;
+          weights.set(key, (weights.get(key) ?? 0) + 1);
+        }
+        const edges = [...weights.entries()].map(([key, w]) => {
+          const [source, target] = key.split('|');
+          return { source, target, weight: w, label: String(w) };
+        });
+        return { nodes: [...nodes.values()], edges };
+      },
+    },
   };
 
   // ---------- node encoders ----------
@@ -476,7 +502,19 @@
         line.classList.toggle('dim', q && !am);
       }
     }
-    return { selectNode, applySearch };
+    // Usage focus: emphasize a node and the set of related ids; dim the rest.
+    function focus(ids) {
+      for (const { circle, label, n } of nodeEls) {
+        const on = !ids || ids.has(n.id);
+        circle.classList.toggle('faded', !on);
+        label.classList.toggle('faded', !on);
+      }
+      for (const { line, l } of linkEls) {
+        const on = !ids || (ids.has(l.source) && ids.has(l.target));
+        line.classList.toggle('faded', !on);
+      }
+    }
+    return { selectNode, applySearch, focus };
   }
 
   // ---------- hierarchy (containment for hierarchical structures, else
@@ -641,7 +679,13 @@
         rect.classList.toggle('dim', !m);
       }
     }
-    return { selectNode, applySearch };
+    function focus(ids) {
+      for (const { rect, n, leaf } of rectEls) {
+        if (!leaf) continue;
+        rect.classList.toggle('faded', ids && !ids.has(n.id));
+      }
+    }
+    return { selectNode, applySearch, focus };
   }
 
   const LAYOUTS = {
@@ -743,6 +787,22 @@
         el('span', { text: String(u.line) }),
       ])));
     }
+
+    // Usage exploration: where this symbol (type/function/value) is used.
+    const refs = refsByTarget.get(id) || [];
+    const head = el('h3', {}, [
+      document.createTextNode(`used at (${refs.length}) `),
+      refs.length ? el('a', { class: 'focus-link', text: '◎ focus usages', onclick: () => focusUsages(id) }) : document.createTextNode(''),
+    ]);
+    aside.append(head);
+    if (refs.length) {
+      aside.append(table(['where', 'line'], refs.slice(0, 60).map((r) => [
+        r.inSymbol ? link(r.inSymbol, () => showSymbol(r.inSymbol)) : link(r.file, () => showFile(r.file)),
+        el('span', { text: String(r.line) }),
+      ])));
+    } else {
+      aside.append(el('p', { class: 'empty', text: 'no references found' }));
+    }
   }
 
   function showApiCategory(category) {
@@ -775,10 +835,11 @@
   // ---------- chrome + control state ----------
   const graphHost = el('div', { id: 'graph' });
   const legend = el('div', { class: 'legend' });
+  const focusChip = el('div', { class: 'focuschip' });
   let active = null;
 
   const state = {
-    structure: 'modules', layout: 'force',
+    structure: 'modules', layout: 'force', focus: null,
     size: 'lines', color: 'directory', linkLabel: 'none', linkWidth: 'fixed', search: '',
   };
 
@@ -845,7 +906,34 @@
       onSelect: structure.onSelect, linkLabel: state.linkLabel, linkText, tooltip,
     });
     active.applySearch(state.search);
+    if (state.focus && active.focus) { active.focus(state.focus.ids); if (active.selectNode) active.selectNode(state.focus.center); }
     updateLegend(structure, built);
+    updateFocusChip();
+  }
+
+  // Switch to the usage structure and highlight a symbol's use sites.
+  function focusUsages(id) {
+    const refs = refsByTarget.get(id) || [];
+    const ids = new Set([id]);
+    for (const r of refs) ids.add(r.inSymbol || r.file);
+    state.focus = { center: id, ids };
+    state.structure = 'references';
+    structureCtl.querySelector('select').value = 'references';
+    rebuild();
+  }
+  function clearFocus() {
+    state.focus = null;
+    if (active && active.focus) active.focus(null);
+    updateFocusChip();
+  }
+  function updateFocusChip() {
+    focusChip.textContent = '';
+    if (!state.focus) return;
+    const name = symbolById.get(state.focus.center)?.name || state.focus.center;
+    focusChip.append(
+      el('span', { class: 'badge', text: `focused: ${name} (${state.focus.ids.size - 1} use sites)` }),
+      el('a', { class: 'clear', text: '✕ clear', onclick: clearFocus }),
+    );
   }
 
   // ---------- controls ----------
@@ -862,7 +950,7 @@
 
   const structureCtl = control('structure', 'Structure',
     Object.entries(STRUCTURES).map(([k, v]) => [k, v.label]), state.structure,
-    (v) => { state.structure = v; rebuild(); });
+    (v) => { state.structure = v; state.focus = null; rebuild(); });
   const layoutCtl = control('layout', 'Layout',
     Object.entries(LAYOUTS).map(([k, v]) => [k, v.label]), state.layout,
     (v) => { state.layout = v; rebuild(); });
@@ -898,7 +986,7 @@
   document.body.append(
     el('header', {}, [el('h1', {}, [document.createTextNode('Code Analysis — '), el('span', { text: projectName })]), stats]),
     el('div', { class: 'toolbar' }, [structureCtl, layoutCtl, sizeCtl, colorCtl, linkLabelCtl, linkWidthCtl, searchInput]),
-    el('div', { class: 'legendbar' }, [legend]),
+    el('div', { class: 'legendbar' }, [legend, focusChip]),
     el('main', {}, [graphHost, aside]),
   );
 

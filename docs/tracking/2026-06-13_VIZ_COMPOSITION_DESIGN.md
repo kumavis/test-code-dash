@@ -15,7 +15,7 @@ Dashboard track)
 | 2 | Renderer rearchitecture: orthogonal Structure × Layout × Node × Link controls | ✅ done | 6 controls; metric registries; module-edge weight added; 42 tests green |
 | 3 | Filesystem + Symbol (AST) structures, Tree layout | ✅ done | filesystem (dirs+files), symbols (file→symbol→member), tree layout; flat structures get synthesized dir hierarchy; 42 tests green |
 | 4 | Treemap representation (nested squares) | ✅ done | squarified; dir groups nested; sized/colored by any metric; 42 tests green |
-| 5 | Type/symbol usage exploration (focus + references panel) | ⬜ | "where is this used" |
+| 5 | Type/symbol usage exploration (focus + references panel) | ✅ done | references structure; panel "used at" + focus-usages; fade highlight + clear; 43 tests green |
 | 6 | Tests, capstone refresh, docs | ⬜ | |
 
 Statuses: ⬜ not started / 🔄 in progress / ✅ done / ⏸️ blocked
