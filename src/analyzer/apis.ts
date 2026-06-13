@@ -1,7 +1,7 @@
 import ts from 'typescript';
 import type { ApiCategory, ApiUsage } from '../model.js';
 import { relPath, type LoadedProject } from './project.js';
-import { isFunctionLikeSymbolNode, type SymbolTable } from './symbols.js';
+import { enclosingSymbolId, type SymbolTable } from './symbols.js';
 
 /** Node built-in modules that imply a privilege category. */
 const MODULE_CATEGORIES: Record<string, ApiCategory> = {
@@ -76,20 +76,12 @@ export function findApiUsage(project: LoadedProject, table: SymbolTable): ApiUsa
   for (const sf of project.sourceFiles) {
     const file = relPath(project, sf);
 
-    const enclosingSymbolId = (node: ts.Node): string | null => {
-      for (let cur = node.parent; cur; cur = cur.parent) {
-        const id = table.idByNode.get(cur);
-        if (id && isFunctionLikeSymbolNode(cur)) return id;
-      }
-      return null;
-    };
-
     const record = (node: ts.Node, category: ApiCategory, api: string): void => {
       const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
       const key = `${file}|${line}|${api}`;
       if (seen.has(key)) return;
       seen.add(key);
-      usages.push({ category, api, file, line, inSymbol: enclosingSymbolId(node) });
+      usages.push({ category, api, file, line, inSymbol: enclosingSymbolId(table, node) });
     };
 
     // Names bound by imports of categorized modules.

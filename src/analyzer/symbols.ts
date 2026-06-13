@@ -138,6 +138,15 @@ export function collectSymbols(project: LoadedProject): SymbolTable {
   return { symbols, idByNode };
 }
 
+/** Nearest enclosing function-like symbol id for a node, null at module level. */
+export function enclosingSymbolId(table: SymbolTable, node: ts.Node): string | null {
+  for (let cur = node.parent; cur; cur = cur.parent) {
+    const id = table.idByNode.get(cur);
+    if (id && isFunctionLikeSymbolNode(cur)) return id;
+  }
+  return null;
+}
+
 /** Layer 10: fraction of a file's exported top-level symbols that carry docs. */
 export function applyDocCoverage(files: FileInfo[], table: SymbolTable): void {
   for (const file of files) {

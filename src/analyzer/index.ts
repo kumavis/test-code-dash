@@ -8,6 +8,7 @@ import { buildCallGraph } from './callgraph.js';
 import { applyComplexity } from './metrics.js';
 import { applyChurn } from './churn.js';
 import { findApiUsage } from './apis.js';
+import { buildReferences } from './references.js';
 
 export const TOOL_NAME = 'code-analysis-dashboard';
 export const TOOL_VERSION = '0.1.0';
@@ -46,5 +47,6 @@ export function analyze(projectRoot: string): AnalysisModel {
     typeGraph: buildTypeGraph(project, symbolTable),
     callGraph: buildCallGraph(project, symbolTable),
     apiUsage: findApiUsage(project, symbolTable),
+    references: buildReferences(project, symbolTable),
   };
 }

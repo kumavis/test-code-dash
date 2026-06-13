@@ -10,8 +10,8 @@ Dashboard track)
 
 | Phase | Description | Status | Notes |
 |---|---|---|---|
-| 0 | Acceptance spec (aspirational sections) | ⬜ | |
-| 1 | Analyzer: reference index (symbol → use sites) | ⬜ | powers type-usage exploration |
+| 0 | Acceptance spec (aspirational sections) | ✅ done | `examples/2026-06-13-viz-acceptance.mjs`; Phase 1 section active |
+| 1 | Analyzer: reference index (symbol → use sites) | ✅ done | 2384 refs on chat (+1.2s); Animal's 5 use sites incl. type annotations; 41 tests green |
 | 2 | Renderer rearchitecture: orthogonal Structure × Layout × Node × Link controls | ⬜ | preserves existing structures/force layout |
 | 3 | Filesystem + Symbol (AST) structures, Tree layout | ⬜ | hierarchical structures |
 | 4 | Treemap representation (nested squares) | ⬜ | non-graph view |

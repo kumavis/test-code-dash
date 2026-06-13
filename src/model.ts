@@ -100,6 +100,16 @@ export interface ApiUsage {
   inSymbol: string | null;
 }
 
+/** A single use site of a project-declared symbol (powers "where is X used"). */
+export interface ReferenceSite {
+  /** The referenced symbol id. */
+  to: string;
+  file: string;
+  line: number;
+  /** Enclosing function-like symbol id, null at module top level. */
+  inSymbol: string | null;
+}
+
 export interface AnalysisModel {
   meta: AnalysisMeta;
   files: FileInfo[];
@@ -108,4 +118,5 @@ export interface AnalysisModel {
   typeGraph: TypeEdge[];
   callGraph: CallGraph;
   apiUsage: ApiUsage[];
+  references: ReferenceSite[];
 }
